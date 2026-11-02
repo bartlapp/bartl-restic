@@ -22,6 +22,7 @@ type admission struct {
 	uid        string
 	mode       string
 	generation int64
+	tokenFile  string
 }
 
 func newAdmission(mode string) (*admission, error) {
@@ -41,10 +42,10 @@ func newAdmission(mode string) (*admission, error) {
 	if !pool.AppendCertsFromPEM(ca) {
 		return nil, errors.New("invalid Kubernetes CA")
 	}
-	return &admission{client: &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}}}, url: "https://kubernetes.default.svc/apis/restic.bartl.sh/v1alpha1/namespaces/" + url.PathEscape(namespace) + "/resticapplications/" + url.PathEscape(name), uid: uid, mode: mode, generation: generation}, nil
+	return &admission{client: &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}}}, url: "https://kubernetes.default.svc/apis/restic.bartl.sh/v1alpha1/namespaces/" + url.PathEscape(namespace) + "/resticapplications/" + url.PathEscape(name), uid: uid, mode: mode, generation: generation, tokenFile: serviceAccountDirectory + "/token"}, nil
 }
 func (a *admission) check(ctx context.Context) error {
-	token, err := os.ReadFile(serviceAccountDirectory + "/token")
+	token, err := os.ReadFile(a.tokenFile)
 	if err != nil {
 		return err
 	}
@@ -87,8 +88,14 @@ func (a *admission) check(ctx context.Context) error {
 	if app.Metadata.UID != a.uid || app.Metadata.DeletionTimestamp != nil || app.Spec.Replicas == nil || *app.Spec.Replicas != 1 {
 		return errors.New("current application intent refuses work")
 	}
-	if a.mode == "replicate" && (app.Metadata.Generation != a.generation || app.Status.State != "Ready" || app.Status.ObservedGeneration != app.Metadata.Generation) {
-		return errors.New("replication requires its admitted generation to be current and Ready")
+	if a.mode == "replicate" {
+		op := app.Status.Operation
+		if app.Metadata.Generation != a.generation || app.Status.State != "Ready" || app.Status.ObservedGeneration != app.Metadata.Generation {
+			return errors.New("replication requires its admitted generation to be current and Ready")
+		}
+		if op == nil || op.Result != "Succeeded" || op.PVCUID != os.Getenv("PVC_UID") {
+			return errors.New("replication no longer owns the verified target")
+		}
 	}
 	if a.mode == "lifecycle" {
 		op := app.Status.Operation
