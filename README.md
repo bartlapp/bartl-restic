@@ -32,7 +32,7 @@ Recovery selects and binds the destination's full snapshot ID. In the proof, the
 
 The copy worker uses Restic's source read lock and destination append lock. Keep destructive maintenance excluded from replication and recovery through native Restic locks. Recovery access is read-only for backup contents but permits native lock creation/removal. After a crash, establish that the owning operation has ended before removing a stale lock; never blindly unlock on retry. Independent secondary retention must not translate source absence into deletion.
 
-### Executed proof and remaining integration
+### Mechanism proof
 
 Two local filesystem repositories used separate passwords and matching chunker parameters. With the primary repository, its password file and the original capture moved out of reach, a cache-disabled restore from the secondary reproduced the 2 MiB synthetic payload's SHA-256. Deleting and pruning the primary snapshot, then running copy again, left the secondary point selectable and byte-correct.
 
@@ -40,11 +40,11 @@ A subsequent copy of a 256 MiB synthetic payload was killed with `SIGKILL` after
 
 The killed process left stale locks. Copy retry and restore succeeded without manual unlock, but `check --read-data` exited with lock error 11. After confirming the process had exited and its PID no longer existed, removing stale locks allowed the full secondary data check to pass. The source stale lock was also removed.
 
-The copy proof selects the native replication mechanism, not an automated replication deployment. The endpoint package below adds HTTPS access protection and native-lock-compatible recovery access. Retention policy and replication scheduling remain integration work. Direct native Keycloak recovery from a secondary repository with the primary removed is verified below; the backend does not acquire application-specific responsibilities.
+The copy proof selects the native replication mechanism. The endpoint package below adds HTTPS access protection, native-lock-compatible recovery access and backend-owned scheduled copying. Retention selection remains an independent operator responsibility. Direct native Keycloak recovery from a secondary repository with the primary removed is verified below; the backend does not acquire application-specific responsibilities.
 
 ## Endpoint package
 
-`chart/` is the first usable endpoint increment: one `Recreate` Deployment, an existing PVC, nginx HTTPS/authentication, an append-only rest-server and a full-access rest-server. Both rest-server processes listen only on Pod loopback. The Service exposes only HTTPS. The chart does not create or delete the PVC, initialize repositories, implement a controller, schedule retention or automate replication. rest-server is pinned to the lab's 0.14.0 image digest, nginx to 1.28.0 and maintenance Restic to 0.19.1.
+`chart/` deploys one `Recreate` Deployment, an existing PVC, nginx HTTPS/authentication, an append-only rest-server and a full-access rest-server, plus optional replication CronJobs. Both rest-server processes listen only on Pod loopback. The Service exposes only HTTPS. The chart does not create or delete the PVC, initialize repositories, implement a controller or schedule retention. rest-server is pinned to the lab's 0.14.0 image digest, nginx to 1.28.0 and maintenance/replication Restic to 0.19.1.
 
 Each declared repository has one URL, `rest:https://HOST/REPOSITORY/`, and its own authentication Secret. That Secret's `htpasswd` contains accounts named exactly `writer`, `reader` and `admin`, with different passwords for each account and repository. An authenticated unknown username receives HTTP 403. Do not duplicate account passwords across repositories: the per-repository files are the credential boundary.
 
@@ -95,6 +95,59 @@ kubectl -n backup get service backup-restic
 
 Provide DNS/routing for the TLS hostname to this Service; the chart does not provision DNS, ingress, load balancers or certificates. Its NetworkPolicy permits ingress only to TLS port 8443 when enforced by the cluster CNI. The rest-server listeners remain loopback-only even without policy enforcement. Secret rotation requires a Deployment restart so nginx reloads authentication/TLS files.
 
+### Scheduled replication
+
+Configure each destination in the primary endpoint's customer Helm values. Each entry creates an independent CronJob; consuming applications continue publishing only to the primary endpoint.
+
+```yaml
+replication:
+  - name: secondary
+    repository: keycloak
+    sourceCredentialsSecret: keycloak-replication-source
+    destination:
+      host: secondary.example.org
+      repository: keycloak
+      credentialsSecret: keycloak-replication-destination
+    schedule: "*/15 * * * *"
+    timeZone: Etc/UTC
+    suspend: false
+    activeDeadlineSeconds: 3600
+```
+
+The source must name a declared local repository. Destination hosts are credential-free HTTPS DNS names, with port 443 and a declared repository path. Entry names must be unique and at most 20 characters. Deploy and initialize the secondary separately, with its own PVC, encryption password, authentication credentials and TLS certificate. For a new secondary use `restic init --from-repo ... --from-password-file ... --copy-chunker-params` while the primary is accessible; never reinitialize an existing secondary.
+
+Create these Secrets in the primary endpoint's namespace from independently protected files, not plaintext Helm values:
+
+```sh
+kubectl -n backup create secret generic keycloak-replication-source \
+  --from-file=password=/protected/primary/password
+kubectl -n backup create secret generic keycloak-replication-destination \
+  --from-file=username=/protected/secondary/username \
+  --from-file=restPassword=/protected/secondary/writer.restPassword \
+  --from-file=password=/protected/secondary/password \
+  --from-file=ca.crt=/protected/secondary/ca.crt
+```
+
+The destination `username` file must contain `writer`, not `admin`. Its transport password is specific to that secondary repository. Retain the secondary reader credentials, encryption password and CA independently of the primary provider; restore does not require the primary password or replication Secrets. Source and destination encryption passwords may differ.
+
+The worker mounts only the selected primary repository subdirectory at `/source` and uses `restic copy` against the authenticated secondary HTTPS endpoint. The source mount is writable for native lock creation/removal; the worker is a trusted backend component, not a read-only credential boundary. Required Pod affinity places it on the endpoint's node to share an existing ReadWriteOnce claim. Restic 0.19.1 shares one REST transport credential pair across repositories, so local source access avoids embedding either credential in a URL.
+
+Each run copies all snapshots currently available at the source. Native Restic origin/metadata matching skips existing copies; the next scheduled run catches up after an outage. Copies retain their original capture times, not the time replication ran. `concurrencyPolicy: Forbid` prevents overlap within one CronJob, while native source read and destination append locks exclude destructive maintenance across clients. Do not configure multiple jobs to copy the same source into the same destination: nonexclusive copy locks are not cross-job deduplication serialization. Use distinct destination repositories; never point replication back at the source.
+
+Schedules default to UTC. A missed start is eligible for 60 seconds; later missed ticks need not be replayed because the next run scans available history. The default one-hour active deadline bounds a stuck run and is configurable for repository size and bandwidth. Each Job has no Kubernetes retry, never unlocks or initializes repositories, and retains its native exit status. Inspect a failure before intervention; after a killed process, prove that its owner has ended before removing stale locks. Changing Secrets affects newly created Pods.
+
+Replication has its own Job status and logs, separate from application backup results:
+
+```sh
+kubectl -n backup get cronjobs,jobs -l bartl-restic/replication=secondary
+kubectl -n backup describe cronjob backup-restic-copy-secondary
+kubectl -n backup logs job/SELECTED_REPLICATION_JOB
+```
+
+Three successful and three failed Jobs are retained per destination. Export Job results and logs if longer history or alerting is required. Monitor failed or overdue Jobs and the newest usable secondary snapshot's capture time, not just `lastSuccessfulTime`: a successful no-op copy does not prove a recent application backup. A copy Job completing means native copying succeeded; it does not substitute for a secondary `check --read-data` and a restore qualification. Missing Secrets, unavailable endpoints, wrong credentials and conflicting maintenance locks remain visible as failed or blocked work rather than changing primary backup success.
+
+Secondary retention is administered separately with its own admin credentials and the maintenance Job below. Copy never invokes `forget`, `prune` or deletion, and source absence never deletes secondary history. A point deliberately removed at the secondary will be copied again while it remains at the primary; coordinate the two retention policies accordingly. Primary retention must leave enough history for the agreed replication-outage window, because a snapshot deleted before copying cannot be recovered by catch-up.
+
 ### Native maintenance
 
 The optional Job accepts only `check` (full `check --read-data`) or `forget-prune` for one operator-selected full snapshot ID. Native Restic acquires its exclusive maintenance lock and fails on conflicting active locks; no lock bypass, automatic unlock, raw command or implicit initialization is exposed. Choose a unique Job name for each invocation. There is no automatic retention selection.
@@ -137,13 +190,18 @@ Record repository identity and full snapshot IDs with `restic cat config` and `r
 
 The [2 November Kubernetes qualification](evidence/2026-11-02-kubernetes.json) passed on a disposable Hetzner CPX32 running K3s `v1.36.5+k3s1`. It exercised authenticated HTTPS, content-write denial, native lock access, cross-repository credential isolation, maintenance exclusion in both directions, full data checks, selected-snapshot pruning and byte-correct restores. Deleting and recreating the Deployment through Helm preserved the PVC UID, repository identity and snapshot. Missing repository state failed visibly without initialization; restoring the original values resumed service with the existing history intact. The earlier [native-process proof](evidence/2026-11-02-endpoint.json) remains available.
 
-Run the maintained proof only against an explicitly authorized disposable Hetzner cluster with a default StorageClass and registry access:
+The [scheduled replication qualification](evidence/2026-11-02-replication.json) passed on a separate disposable Hetzner CPX32 with K3s `v1.36.5+k3s1`. Seven actual controller-scheduled Jobs demonstrated initial copy, visible secondary authentication failure (HTTP 401, exit 1) while primary backup succeeded, repaired-credential catch-up, unchanged destination IDs on repeat, and native lock conflicts (exit 11) against exclusive maintenance at either repository. Primary forget/prune followed by scheduled copy preserved both secondary points.
+
+After deleting the primary Helm release, PVC, credentials and original capture client, a fresh client with only the secondary reader Secret restored the retained full destination ID without cache and reproduced the 16 MiB payload's SHA-256. A full secondary data check passed. The existing endpoint qualification also passed unchanged. Both repositories occupied separate PVCs in one lab cluster; this verifies primary removal and direct recovery, not an actual cross-provider outage. The VM, IPv4, firewall and temporary SSH key were deleted and individually confirmed absent through the provider API. Estimated rounded-up infrastructure cost: €0.0577 of the authorized €5.
+
+Run the maintained proofs only against an explicitly authorized disposable Hetzner cluster with a default StorageClass and registry access:
 
 ```sh
 BARTL_RESTIC_LAB=hetzner KUBECONFIG=/private/lab-kubeconfig node tests/kubernetes.mjs
+BARTL_RESTIC_LAB=hetzner KUBECONFIG=/private/lab-kubeconfig node tests/replication.mjs
 ```
 
-The runner creates its own namespace, retains evidence locally and deletes that namespace on success. Failures retain diagnostics and print the exact cleanup command. It never provisions infrastructure or starts local containers. Use Hetzner for these tests; Colima or local Docker requires explicit permission. The recorded VM, IPv4 and firewall were deleted and their absence verified; the estimated rounded-up infrastructure cost was €0.0577 against the authorized €5 budget.
+Each runner creates its own namespace, retains evidence locally and deletes that namespace on success. Failures retain diagnostics and print the exact cleanup command. Neither provisions infrastructure nor starts local containers. Use Hetzner for these tests; Colima or local Docker requires explicit permission. The earlier endpoint qualification's VM, IPv4 and firewall were also deleted and their absence verified; its estimated rounded-up infrastructure cost was €0.0577 against its authorized €5 budget.
 
 The [Keycloak secondary-recovery proof](../bartl-keycloak/evidence/2026-11-02-secondary-recovery.json) reproduced the old repository-ID rejection and verified the fixed native worker against a separately initialized repository after removal of the primary endpoint, PVC, credentials, source Keycloak and source database. The restored application accepted the original user's password and preserved user/realm IDs; foreign ownership, incompatible images and corrupted archive data were rejected before target mutation. This exercised candidate native workers and real Keycloak, not a new published Keycloak image or its complete controller lifecycle. Both repositories were in the same disposable cluster; no actual cross-provider outage was exercised.
 

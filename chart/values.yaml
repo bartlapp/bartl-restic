@@ -8,6 +8,27 @@ repositories: []
 # - name: keycloak
 #   authSecret: keycloak-repository-auth
 
+# Optional backend-owned scheduled copies into independently initialized repositories.
+# Source Secret needs only password. Destination Secret contains username (writer),
+# restPassword, password and ca.crt. No passwords or credentials belong in values.
+# Each entry has independent scheduling, native Restic locks and Job/log outcomes.
+# Source PVC mounts are read/write solely to permit native lock creation/removal.
+# Secondary retention is separate operator maintenance; copy never mirrors deletion.
+replication: []
+# - name: secondary
+#   repository: keycloak
+#   sourceCredentialsSecret: keycloak-repository-key
+#   destination:
+#     host: backup.secondary.example.com
+#     repository: keycloak
+#     credentialsSecret: keycloak-secondary-writer
+#   schedule: "*/15 * * * *"
+#   timeZone: Etc/UTC
+#   suspend: false
+#   activeDeadlineSeconds: 3600
+# Jobs forbid overlap per entry, never retry failed Pods, and retain three successful
+# and three failed executions. Missed starts expire after 60 seconds.
+
 # Optional one-shot operator-selected maintenance, not scheduled retention.
 # Use a unique name for each invocation; Jobs are immutable.
 maintenance:
