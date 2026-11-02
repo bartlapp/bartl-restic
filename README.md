@@ -226,9 +226,8 @@ The example host must be covered by the certificate and reachable from the Job. 
 
 ## Qualification and test output
 
-Compact qualification records identify the tested source, environment, scenarios, results and material limits:
+Historical qualification records:
 
-- [Backup-service lifecycle, primary replacement, durable stop and corruption refusal](evidence/2026-11-02-lifecycle.json), including endpoint and scheduled-replication regressions.
 - [Scheduled replication and direct secondary restore](evidence/2026-11-02-replication.json).
 - [Kubernetes endpoint authorization, maintenance and replacement](evidence/2026-11-02-kubernetes.json).
 - [Native-process endpoint authorization](evidence/2026-11-02-endpoint.json).
@@ -252,7 +251,7 @@ Run output stays outside the checkout in a private temporary directory by defaul
 
 Source provenance captures run-start Git HEAD, dirty state and SHA-256 of the chart, controller/worker, dependency, image-build and test files. A run with uncommitted changes qualifies those recorded bytes, not HEAD alone. Run focused native boundary regressions with `go test ./...`; check output isolation, compact-record selection and provenance with `node --test tests/artifacts.test.mjs`. The cluster scenarios, not those unit tests, establish service behavior.
 
-Review the compact qualification, complete its provider cleanup/budget outcome and copy only that record into `evidence/` when updating qualification. Do not commit raw transcripts, Kubernetes object dumps or nested regression records. Retain raw output durably only when it supports a specific unresolved issue or an independently referenced approval; record that reference and retain the exact supporting version. Existing qualification provenance identifies original Git versions without rewriting history.
+Keep run artifacts outside Git. Put the concise verification result, tested version, material limits and provider cleanup/budget outcome in the integration description. Do not add per-session evidence files, raw transcripts, Kubernetes object dumps or nested regression records to Git. Existing historical records remain available without rewriting history.
 
 ## Sources
 
