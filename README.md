@@ -22,29 +22,30 @@ The secondary retains history independently. Deletion or compromise at the prima
 
 Repository and snapshot identities need not be equal across providers. Recovery must select and bind a complete, valid, compatible point in the chosen repository; a primary snapshot ID must not be assumed to identify its secondary copy. Preserving access to the agreed history matters, not byte-identical reconstruction of the lost backend before consumers can recover.
 
+To inspect secondary recovery points or recover repository files, use the secondary reader credentials and full snapshot ID. Application reconstruction follows the consuming application's recovery procedure.
+
+```sh
+export RESTIC_REPOSITORY="rest:https://$SECONDARY_HOST/$REPOSITORY/"
+export RESTIC_PASSWORD_FILE=/protected/secondary/password
+export RESTIC_REST_USERNAME=reader
+export RESTIC_REST_PASSWORD="$(cat /protected/secondary/reader.restPassword)"
+restic --cacert /protected/secondary/ca.crt snapshots --json
+restic --cacert /protected/secondary/ca.crt restore "$FULL_SNAPSHOT_ID" --target "$RESTORE_DIR"
+```
+
 For recovery of an individual endpoint, attach an intact repository PVC to a suitable Kubernetes cluster, apply the declared package configuration and protected credentials, verify repository integrity and access protection, then serve. If that volume is lost, reconstruct the endpoint's state separately while the surviving endpoint remains available for application recovery.
 
 ## Replication mechanism
 
-`restic copy` is selected as the replication primitive on the basis of the [2 November local proof](evidence/2026-11-02-restic-copy.json) with Restic 0.19.1. It copies snapshots into an independently initialized repository, skips previously copied snapshots and does not mirror source deletions. The worker needs both repositories' encryption keys because copying decrypts and re-encrypts data. Initialize the secondary with `init --from-repo ... --copy-chunker-params` and a separate password.
+`restic copy` copies snapshots into an independently initialized repository, skips previously copied snapshots and does not mirror source deletions. The worker needs both repositories' encryption keys because copying decrypts and re-encrypts data. Initialize the secondary with `init --from-repo ... --copy-chunker-params` and a separate password.
 
-Recovery selects and binds the destination's full snapshot ID. In the proof, the copied snapshot's `original` field held the source snapshot ID and its `tree` matched the source. Restic preserves an existing `original` value on further copies, so it is an origin identifier, not necessarily the immediately preceding repository's snapshot ID. Use native snapshot metadata to establish correspondence; do not assume identical snapshot IDs or treat producer-supplied metadata as proof of application completeness.
+Recovery selects and binds the destination's full snapshot ID. A copied snapshot preserves the source's `tree`; its `original` field identifies the originating snapshot. Restic preserves an existing `original` value on further copies, so it is not necessarily the immediately preceding repository's snapshot ID. Use native snapshot metadata to establish correspondence; do not assume identical snapshot IDs or treat producer-supplied metadata as proof of application completeness.
 
 The copy worker uses Restic's source read lock and destination append lock. Keep destructive maintenance excluded from replication and recovery through native Restic locks. Recovery access is read-only for backup contents but permits native lock creation/removal. After a crash, establish that the owning operation has ended before removing a stale lock; never blindly unlock on retry. Independent secondary retention must not translate source absence into deletion.
 
-### Mechanism proof
-
-Two local filesystem repositories used separate passwords and matching chunker parameters. With the primary repository, its password file and the original capture moved out of reach, a cache-disabled restore from the secondary reproduced the 2 MiB synthetic payload's SHA-256. Deleting and pruning the primary snapshot, then running copy again, left the secondary point selectable and byte-correct.
-
-A subsequent copy of a 256 MiB synthetic payload was killed with `SIGKILL` after the first new destination pack file appeared. Only the previous snapshot remained selectable, and it still restored correctly. Retry published the new point; it restored byte-correctly with the primary unavailable. Repeating copy left the same destination snapshot IDs. This verifies recovery and idempotent retry, not a bound on retransmitted data.
-
-The killed process left stale locks. Copy retry and restore succeeded without manual unlock, but `check --read-data` exited with lock error 11. After confirming the process had exited and its PID no longer existed, removing stale locks allowed the full secondary data check to pass. The source stale lock was also removed.
-
-The copy proof selects the native replication mechanism. The endpoint package below adds HTTPS access protection, native-lock-compatible recovery access and backend-owned scheduled copying. Retention selection remains an independent operator responsibility. Direct native Keycloak recovery from a secondary repository with the primary removed is verified below; the backend does not acquire application-specific responsibilities.
-
 ## Endpoint package
 
-`chart/` deploys one `Recreate` Deployment, an existing PVC, nginx HTTPS/authentication, an append-only rest-server and a full-access rest-server, plus optional replication CronJobs. Both rest-server processes listen only on Pod loopback. The Service exposes only HTTPS. The chart does not create or delete the PVC, initialize repositories, implement a controller or schedule retention. rest-server is pinned to the lab's 0.14.0 image digest, nginx to 1.28.0 and maintenance/replication Restic to 0.19.1.
+`chart/` deploys one `Recreate` Deployment, an existing PVC, nginx HTTPS/authentication, an append-only rest-server and a full-access rest-server, plus optional replication CronJobs. Both rest-server processes listen only on Pod loopback. The Service exposes only HTTPS. The chart does not create or delete the PVC, initialize repositories, implement a controller or schedule retention. rest-server is pinned to a 0.14.0 image digest, nginx to 1.28.0 and maintenance/replication Restic to 0.19.1.
 
 Each declared repository has one URL, `rest:https://HOST/REPOSITORY/`, and its own authentication Secret. That Secret's `htpasswd` contains accounts named exactly `writer`, `reader` and `admin`, with different passwords for each account and repository. An authenticated unknown username receives HTTP 403. Do not duplicate account passwords across repositories: the per-repository files are the credential boundary.
 
@@ -166,44 +167,31 @@ kubectl -n backup logs job/backup-restic-check-20261102
 
 The example host must be covered by the certificate and reachable from the Job. For deletion, replace `action=check` with `action=forget-prune`, add `--set-string maintenance.snapshot="$FULL_SNAPSHOT_ID"` and choose a fresh name. Retain the Job/logs as the operation result; inspect failed Jobs rather than retrying blindly. Stale locks require an operator to establish that the owning operation has ended before using native Restic unlock separately.
 
-### Startup, authorization and replacement proof
+## Qualification and test output
 
-Use a disposable initialized repository for destructive probes. Run clients with Restic 0.19.1, trusted CA, `RESTIC_PASSWORD_FILE`, `RESTIC_REST_USERNAME` and `RESTIC_REST_PASSWORD`; `RESTIC_REPOSITORY` is the same credential-free URL for all three roles. Use the selected endpoint's exact rendered ConfigMap and Deployment, not a different test proxy.
+Compact qualification records identify the tested source, environment, scenarios, results and material limits:
 
-```sh
-helm template backup ./chart -n backup -f endpoint-values.yaml > endpoint-rendered.yaml
-helm lint ./chart -f endpoint-values.yaml
-# List existing locks and select a full snapshot ID:
-RESTIC_REST_USERNAME=reader restic --cacert "$CA_FILE" list locks
-RESTIC_REST_USERNAME=reader restic --cacert "$CA_FILE" snapshots --json
-# Restore creates/removes its native lock; use the selected full ID, not "latest".
-RESTIC_REST_USERNAME=reader restic --cacert "$CA_FILE" restore "$FULL_SNAPSHOT_ID" --target "$RESTORE_DIR"
-```
+- [Scheduled replication and direct secondary restore](evidence/2026-11-02-replication.json).
+- [Kubernetes endpoint authorization, maintenance and replacement](evidence/2026-11-02-kubernetes.json).
+- [Native-process endpoint authorization](evidence/2026-11-02-endpoint.json).
+- [Native copy, interruption and independent retention](evidence/2026-11-02-restic-copy.json).
 
-Set the matching transport password whenever switching username. For explicit HTTP permission probes, use `curl --cacert "$CA_FILE" --netrc-file "$ROLE_NETRC"` so passwords stay out of command lines and URLs. A reader POST/DELETE to `data/<64hex>`, `snapshots/<64hex>`, `config`, repository root, or a malformed lock name must return 403. A reader POST then DELETE to `locks/<64hex>` must succeed; use the SHA-256 of the synthetic POST body as its name, because rest-server verifies uploaded object hashes. GET/HEAD config must succeed. Writer DELETE config/data/snapshots must return 403, while normal backup and native lock removal succeed. The same credentials against a second repository with independent passwords must return 401. Undeclared repositories return 404; an extra authenticated username returns 403.
+The scheduled qualification uses separate repository PVCs in one cluster, not an actual cross-provider outage. Native copy retry preserves selectable recovery points and avoids duplicate snapshots; it does not bound retransmitted data. Application compatibility remains the consumer's responsibility. The [Keycloak recovery qualification](../bartl-keycloak/evidence/2026-11-02-secondary-recovery.json) covers the compatible native worker, not a published image or its complete controller lifecycle.
 
-While a real long-running reader restore or writer backup holds its native lock, run the maintenance Job and require a visible lock conflict. Conversely, while a long-running admin `check --read-data` holds its exclusive lock, reader restore and writer backup must fail on the conflicting lock. No participant may use `--no-lock`. Use enough disposable data to observe the actual lock interval rather than assuming a small command is still running.
-
-Record repository identity and full snapshot IDs with `restic cat config` and `restic snapshots --json`; restart the Deployment, wait for rollout, then compare identity/history and restore the same full snapshot. Confirm the PVC was not replaced. For a missing-state test, declare a second uninitialized repository and require startup to fail in `require-initialized-repositories`, with the existing repository untouched. Restore the original values to resume service.
-
-### Verification status
-
-The [2 November Kubernetes qualification](evidence/2026-11-02-kubernetes.json) passed on a disposable Hetzner CPX32 running K3s `v1.36.5+k3s1`. It exercised authenticated HTTPS, content-write denial, native lock access, cross-repository credential isolation, maintenance exclusion in both directions, full data checks, selected-snapshot pruning and byte-correct restores. Deleting and recreating the Deployment through Helm preserved the PVC UID, repository identity and snapshot. Missing repository state failed visibly without initialization; restoring the original values resumed service with the existing history intact. The earlier [native-process proof](evidence/2026-11-02-endpoint.json) remains available.
-
-The [scheduled replication qualification](evidence/2026-11-02-replication.json) passed on a separate disposable Hetzner CPX32 with K3s `v1.36.5+k3s1`. Seven actual controller-scheduled Jobs demonstrated initial copy, visible secondary authentication failure (HTTP 401, exit 1) while primary backup succeeded, repaired-credential catch-up, unchanged destination IDs on repeat, and native lock conflicts (exit 11) against exclusive maintenance at either repository. Primary forget/prune followed by scheduled copy preserved both secondary points.
-
-After deleting the primary Helm release, PVC, credentials and original capture client, a fresh client with only the secondary reader Secret restored the retained full destination ID without cache and reproduced the 16 MiB payload's SHA-256. A full secondary data check passed. The existing endpoint qualification also passed unchanged. Both repositories occupied separate PVCs in one lab cluster; this verifies primary removal and direct recovery, not an actual cross-provider outage. The VM, IPv4, firewall and temporary SSH key were deleted and individually confirmed absent through the provider API. Estimated rounded-up infrastructure cost: €0.0577 of the authorized €5.
-
-Run the maintained proofs only against an explicitly authorized disposable Hetzner cluster with a default StorageClass and registry access:
+Run the executable scenarios only against an explicitly authorized disposable Hetzner cluster with a default StorageClass and registry access:
 
 ```sh
 BARTL_RESTIC_LAB=hetzner KUBECONFIG=/private/lab-kubeconfig node tests/kubernetes.mjs
 BARTL_RESTIC_LAB=hetzner KUBECONFIG=/private/lab-kubeconfig node tests/replication.mjs
 ```
 
-Each runner creates its own namespace, retains evidence locally and deletes that namespace on success. Failures retain diagnostics and print the exact cleanup command. Neither provisions infrastructure nor starts local containers. Use Hetzner for these tests; Colima or local Docker requires explicit permission. The earlier endpoint qualification's VM, IPv4 and firewall were also deleted and their absence verified; its estimated rounded-up infrastructure cost was €0.0577 against its authorized €5 budget.
+Each runner creates its own namespace and deletes it on success. Failures retain diagnostics and print the namespace cleanup command. Neither runner provisions infrastructure or establishes provider cleanup or cost; the operator must delete the lab, verify removal and record the budget outcome. Use Hetzner for these tests; Colima or local Docker requires explicit permission.
 
-The [Keycloak secondary-recovery proof](../bartl-keycloak/evidence/2026-11-02-secondary-recovery.json) reproduced the old repository-ID rejection and verified the fixed native worker against a separately initialized repository after removal of the primary endpoint, PVC, credentials, source Keycloak and source database. The restored application accepted the original user's password and preserved user/realm IDs; foreign ownership, incompatible images and corrupted archive data were rejected before target mutation. This exercised candidate native workers and real Keycloak, not a new published Keycloak image or its complete controller lifecycle. Both repositories were in the same disposable cluster; no actual cross-provider outage was exercised.
+Run output stays outside the checkout in a private temporary directory by default. Set `BARTL_RESTIC_EVIDENCE_DIR` to an external artifact directory to select another location; paths inside the checkout, including symlink aliases, are rejected. `raw.json` holds redacted command output and diagnostic details; `qualification.json` contains the selected run summary and source provenance. Values and rendered manifests are also run artifacts, not product documentation.
+
+Source provenance captures run-start Git HEAD, dirty state and SHA-256 of the chart and test files. A run with uncommitted changes qualifies those recorded bytes, not HEAD alone. Check output isolation, compact-record selection and provenance locally without a cluster using `node --test tests/artifacts.test.mjs`.
+
+Review the compact qualification, complete its provider cleanup/budget outcome and copy only that record into `evidence/` when updating qualification. Do not commit raw transcripts, Kubernetes object dumps or nested regression records. Retain raw output durably only when it supports a specific unresolved issue or an independently referenced approval; record that reference and retain the exact supporting version. Existing qualification provenance identifies original Git versions without rewriting history.
 
 ## Sources
 

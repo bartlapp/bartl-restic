@@ -3,10 +3,10 @@
 // BARTL_RESTIC_LAB=hetzner KUBECONFIG=/private/kubeconfig node tests/replication.mjs
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { mkdtempSync, mkdirSync, chmodSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createArtifactDirectory, snapshotSource, persistArtifacts, failureReason } from './artifacts.mjs';
 
 if (process.env.BARTL_RESTIC_LAB !== 'hetzner' || !process.env.KUBECONFIG) {
   console.error('Require BARTL_RESTIC_LAB=hetzner and KUBECONFIG for a dedicated disposable Hetzner K3s cluster. No infrastructure is created.');
@@ -14,11 +14,8 @@ if (process.env.BARTL_RESTIC_LAB !== 'hetzner' || !process.env.KUBECONFIG) {
 }
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const namespace = `restic-copy-${Date.now().toString(36)}-${randomBytes(3).toString('hex')}`;
-const directory = process.env.BARTL_RESTIC_EVIDENCE_DIR
-  ? resolve(process.env.BARTL_RESTIC_EVIDENCE_DIR, namespace)
-  : mkdtempSync(join(tmpdir(), 'bartl-restic-replication-'));
-mkdirSync(directory, { recursive: true, mode: 0o700 });
-chmodSync(directory, 0o700);
+const directory = createArtifactDirectory(root, namespace);
+const source = snapshotSource(root);
 const privateDir = join(directory, 'private');
 mkdirSync(privateDir, { mode: 0o700 });
 const chart = join(root, 'chart');
@@ -31,23 +28,29 @@ const endpoints = Object.fromEntries(['primary', 'secondary'].map(name => [name,
 const secrets = Object.values(endpoints).flatMap(endpoint => [endpoint.password, ...Object.values(endpoint.roles)]);
 const redact = value => secrets.reduce((text, secret) => text.split(secret).join('[REDACTED]'), String(value));
 const bounded = value => redact(value).slice(-24000);
-const evidence = { schema: 1, started: new Date().toISOString(), namespace, image, status: 'running',
+const evidence = { schema: 1, started: new Date().toISOString(), source, namespace, image, status: 'running',
+  environment: { endpointImages: [] }, namespaceCleanup: 'not-created',
   scope: 'Two endpoints and independent PVCs in one disposable Hetzner cluster; actual CronJob controller scheduling, not a cross-provider outage',
   commands: [], assertions: [], scheduledJobs: [], hosts: Object.fromEntries(Object.entries(endpoints).map(([name, endpoint]) => [name, endpoint.host])) };
-const persist = () => writeFileSync(join(directory, 'evidence.json'), JSON.stringify(evidence, null, 2) + '\n', { mode: 0o600 });
+const persist = () => persistArtifacts(directory, evidence, redact);
+persist();
 function command(binary, args, { input, allowFailure = false, timeout = 180000, record = true } = {}) {
   const started = new Date().toISOString();
   const result = spawnSync(binary, args, { input, encoding: 'utf8', timeout, maxBuffer: 16 * 1024 * 1024 });
   const entry = { command: [binary, ...args].map(redact), started, exit: result.status, stdout: bounded(result.stdout || ''), stderr: bounded(result.stderr || ''), error: result.error?.message };
   if (record) { evidence.commands.push(entry); persist(); }
-  if ((result.status !== 0 || result.error) && !allowFailure) throw new Error(`${binary} failed: ${entry.stderr || entry.error || entry.stdout}`);
+  if ((result.status !== 0 || result.error) && !allowFailure) {
+    const error = new Error(`${binary} failed: ${entry.stderr || entry.error || entry.stdout}`);
+    error.publicReason = `${binary} failed (${result.error?.code || `exit ${result.status}`}); inspect private raw.json.`;
+    throw error;
+  }
   return { ...result, stdout: result.stdout || '', stderr: result.stderr || '' };
 }
 const kubectl = (args, options) => command('kubectl', ['--namespace', namespace, ...args], options);
 const apply = object => kubectl(['apply', '-f', '-'], { input: JSON.stringify(object), record: false });
 const secret = (name, data) => apply({ apiVersion: 'v1', kind: 'Secret', metadata: { name }, type: 'Opaque', stringData: data });
 function assert(name, condition, details = {}) {
-  evidence.assertions.push({ name, passed: !!condition, ...details }); persist();
+  evidence.assertions.push({ ...details, name, passed: !!condition }); persist();
   if (!condition) throw new Error(`Assertion failed: ${name}`);
 }
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -127,9 +130,14 @@ async function maintenanceConflict(endpoint) {
 }
 let owned = false;
 try {
-  for (const binary of ['kubectl', 'helm', 'openssl']) command(binary, binary === 'kubectl' ? ['version', '--client=true', '-o', 'json'] : binary === 'helm' ? ['version', '--short'] : ['version']);
+  const versions = JSON.parse(command('kubectl', ['version', '-o', 'json']).stdout);
+  evidence.environment.kubernetesClient = versions.clientVersion?.gitVersion;
+  evidence.environment.kubernetesServer = versions.serverVersion?.gitVersion;
+  evidence.environment.helm = command('helm', ['version', '--short']).stdout.trim();
+  evidence.environment.openssl = command('openssl', ['version']).stdout.trim();
   // No inspection or mutation of any other namespace or cluster-scoped resource.
   kubectl(['create', 'namespace', namespace]); owned = true;
+  evidence.namespaceCleanup = 'retained-after-failure';
   const caKey = join(privateDir, 'ca.key'), ca = join(privateDir, 'ca.crt');
   command('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '2', '-subj', '/CN=Disposable Replication Proof CA', '-keyout', caKey, '-out', ca]);
   const caText = readFileSync(ca, 'utf8');
@@ -167,9 +175,12 @@ try {
     const args = [name, chart, '--namespace', namespace, '-f', valuesFile];
     writeFileSync(join(directory, `${name}-rendered.yaml`), command('helm', ['template', ...args]).stdout);
     command('helm', ['upgrade', '--install', ...args, '--wait', '--timeout', '5m'], { timeout: 330000 });
+    const deployed = JSON.parse(kubectl(['get', 'deployment', endpoints[name].deployment, '-o', 'json']).stdout);
+    evidence.environment.endpointImages.push(...deployed.spec.template.spec.containers.map(({ name: container, image }) => ({ endpoint: name, name: container, image })));
     client(`${name}-client`, name, ['writer', 'reader', 'admin']);
     await until(`${name} authenticated TLS access`, () => restic(name, 'reader', 'cat config', { allowFailure: true, record: false }).status === 0);
   }
+  evidence.environment.restic = restic('primary', 'reader', 'version').stdout.trim();
   const configs = Object.fromEntries(['primary', 'secondary'].map(name => [name, JSON.parse(restic(name, 'reader', 'cat config').stdout)]));
   assert('separate repository identities and shared chunker parameters', configs.primary.id !== configs.secondary.id && configs.primary.chunker_polynomial === configs.secondary.chunker_polynomial, { configs });
   cronUID = JSON.parse(kubectl(['get', 'cronjob', cronName, '-o', 'json']).stdout).metadata.uid;
@@ -229,19 +240,26 @@ try {
   if (process.env.BARTL_RESTIC_KEEP_NAMESPACE !== '1') {
     kubectl(['delete', 'namespace', namespace, '--wait=true', '--timeout=3m'], { timeout: 210000 });
     evidence.cleanup = 'owned namespace deleted';
-  } else evidence.cleanup = `retained by request; kubectl --namespace ${namespace} delete namespace ${namespace}`;
+    evidence.namespaceCleanup = 'deleted';
+  } else {
+    evidence.cleanup = `retained by request; kubectl --namespace ${namespace} delete namespace ${namespace}`;
+    evidence.namespaceCleanup = 'retained-by-request';
+  }
 } catch (error) {
   evidence.status = 'failed'; evidence.failure = bounded(error.stack || error);
+  evidence.failureSummary = failureReason(error);
   if (owned) {
     for (const args of [['get', 'pods,deployments,pvc,cronjobs,jobs', '-o', 'wide'], ['describe', 'pods'], ['get', 'events', '--sort-by=.lastTimestamp']]) kubectl(args, { allowFailure: true });
     const pods = kubectl(['get', 'pods', '-o', 'json'], { allowFailure: true, record: false });
     if (pods.status === 0) for (const pod of JSON.parse(pods.stdout).items) for (const container of [...(pod.spec.initContainers || []), ...pod.spec.containers]) kubectl(['logs', pod.metadata.name, '-c', container.name, '--tail=100'], { allowFailure: true });
     for (const endpoint of ['primary', 'secondary']) exec(`${endpoint}-client`, 'test ! -f /tmp/check.log || cat /tmp/check.log', { allowFailure: true });
   }
-  evidence.cleanup = `failure retained diagnostics and namespace; inspect evidence, then kubectl --namespace ${namespace} delete namespace ${namespace}`;
+  evidence.cleanup = owned
+    ? `failure retained diagnostics and namespace; inspect raw.json, then kubectl --namespace ${namespace} delete namespace ${namespace}`
+    : 'namespace was not created; no namespace cleanup required';
   process.exitCode = 1;
 } finally {
   rmSync(privateDir, { recursive: true, force: true });
   evidence.finished = new Date().toISOString(); persist();
-  console.log(JSON.stringify({ status: evidence.status, namespace, evidence: join(directory, 'evidence.json'), cleanup: evidence.cleanup, failure: evidence.failure }, null, 2));
+  console.log(JSON.stringify({ status: evidence.status, namespace, raw: join(directory, 'raw.json'), qualification: join(directory, 'qualification.json'), cleanup: evidence.cleanup, failure: evidence.failureSummary }, null, 2));
 }
