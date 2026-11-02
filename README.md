@@ -33,7 +33,7 @@ restic --cacert /protected/secondary/ca.crt snapshots --json
 restic --cacert /protected/secondary/ca.crt restore "$FULL_SNAPSHOT_ID" --target "$RESTORE_DIR"
 ```
 
-For recovery of an individual endpoint, attach an intact repository PVC to a suitable Kubernetes cluster, apply the declared package configuration and protected credentials, verify repository integrity and access protection, then serve. If that volume is lost, reconstruct the endpoint's state separately while the surviving endpoint remains available for application recovery.
+For recovery of an individual endpoint, supply the declared package configuration, protected credentials and an existing PVC. The package observes local state. Intact repositories take native verification without consulting secondary recovery. Empty repositories are reconstructed from the configured secondary's retained history, or initialized if no recovery is configured or a successful native lookup confirms an empty secondary. Unreachable inputs, partial repository directories and failed native operations refuse startup. The surviving endpoint remains independently available to consumers throughout reconstruction.
 
 ## Replication mechanism
 
@@ -45,7 +45,7 @@ The copy worker uses Restic's source read lock and destination append lock. Keep
 
 ## Endpoint package
 
-`chart/` deploys one `Recreate` Deployment, an existing PVC, nginx HTTPS/authentication, an append-only rest-server and a full-access rest-server, plus optional replication CronJobs. Both rest-server processes listen only on Pod loopback. The Service exposes only HTTPS. The chart does not create or delete the PVC, initialize repositories, implement a controller or schedule retention. rest-server is pinned to a 0.14.0 image digest, nginx to 1.28.0 and maintenance/replication Restic to 0.19.1.
+`chart/` renders a namespaced `ResticApplication`, its Go/controller-runtime controller and scoped RBAC. The controller owns the endpoint Deployment, HTTPS Service, nginx configuration, NetworkPolicy, finite lifecycle Job and replication CronJobs. Helm owns intent, not the workloads' replica counts or serving gate. The existing PVC and Secrets remain operator-owned. The package never creates or deletes repository storage and does not schedule retention. rest-server is pinned to a 0.14.0 image digest, nginx to 1.28.0 and native Restic to 0.19.1.
 
 Each declared repository has one URL, `rest:https://HOST/REPOSITORY/`, and its own authentication Secret. That Secret's `htpasswd` contains accounts named exactly `writer`, `reader` and `admin`, with different passwords for each account and repository. An authenticated unknown username receives HTTP 403. Do not duplicate account passwords across repositories: the per-repository files are the credential boundary.
 
@@ -57,7 +57,9 @@ Native locks coordinate cooperative Restic clients. A holder of reader or writer
 
 ### Install inputs
 
-Prepare an existing PVC with `/REPOSITORY/config` and native `data`, `index`, `keys`, `locks`, `snapshots` directories. The startup init container mounts the claim read-only and fails visibly if any declared repository is missing. It never runs `restic init`. For a new repository, explicitly mount the claim in a temporary Restic 0.19.1 Pod and run `RESTIC_PASSWORD_FILE=/credentials/password restic -r /data/REPOSITORY init` before deploying the endpoint. Mount the independently retained encryption-password Secret at `/credentials`; delete that temporary Pod before attaching the claim to the endpoint. For replacement, attach the intact claim; do not initialize it again.
+Supply an empty PVC for a new installation or replacement, or the intact claim for a normal restart. Every repository declaration needs its own authentication Secret and a `passwordSecret` containing the independently retained Restic encryption `password`. No manual initialization, recovery-mode flag or second technical release command is required. The controller withholds ordinary access while the native worker observes, initializes or reconstructs repositories, verifies the result and then starts the protected endpoint.
+
+A recovery declaration names an independently accessible HTTPS repository and its reader Secret (`username=reader`, `restPassword`, `password`, `ca.crt`). A missing or unreachable configured repository is an error, not an empty history. Existing local state does not require those recovery credentials or that endpoint. Recovery uses native `init --copy-chunker-params` and `copy`, then full destination `check --read-data` and native snapshot `original`/`tree`/capture-time correspondence to verify every selected retained point. Repository IDs and copied snapshot IDs may change. Ordinary existing-state admission checks native metadata integrity, not a full data scrub.
 
 Create the TLS Secret from an operator-provided certificate/key whose SAN covers the chosen endpoint DNS name. Create one htpasswd Secret per repository. For example, from a protected local directory containing the three transport password files and independently retained Restic `password` and CA `ca.crt`:
 
@@ -66,35 +68,90 @@ umask 077
 for role in writer reader admin; do
   printf '%s:%s\n' "$role" "$(openssl passwd -apr1 -stdin < "$role.restPassword")"
 done > htpasswd
-kubectl -n backup create secret generic keycloak-repository-auth --from-file=htpasswd
+kubectl -n backup create secret generic records-repository-auth --from-file=htpasswd
+kubectl -n backup create secret generic repository-key --from-file=password
 kubectl -n backup create secret tls repository-tls --cert=tls.crt --key=tls.key
 # The admin transport credential and encryption key are separate protected inputs.
 printf '%s' admin > username
-kubectl -n backup create secret generic keycloak-repository-admin \
+kubectl -n backup create secret generic records-repository-admin \
   --from-file=username --from-file=restPassword=admin.restPassword \
   --from-file=password --from-file=ca.crt
 ```
+
+If recovery is configured, create its reader Secret from the independently retained secondary files:
+
+```sh
+kubectl -n backup create secret generic secondary-reader \
+  --from-file=username=/protected/secondary/reader.username \
+  --from-file=restPassword=/protected/secondary/reader.restPassword \
+  --from-file=password=/protected/secondary/password \
+  --from-file=ca.crt=/protected/secondary/ca.crt
+```
+
+The `reader.username` file must contain `reader`. Secondary credentials are only needed for absent local state.
 
 Keep these files outside Git. Consumer writer/reader Secrets need their matching `username`, `restPassword`, `password`, and `ca.crt`; no credential belongs in a URL or chart value. The CA must validate the endpoint certificate, not an unrelated provider certificate.
 
 Example customer values (`endpoint-values.yaml`, no passwords):
 
 ```yaml
+# Build and retain this package's controller/worker image in your approved registry.
+# Select the resulting immutable reference, not a moving tag.
+image: registry.example.org/backup/bartl-restic@sha256:RETAINED_IMAGE_DIGEST
+application:
+  replicas: 1
 existingClaim: repository
 tlsSecret: repository-tls
 repositories:
-  - name: keycloak
-    authSecret: keycloak-repository-auth
+  - name: records
+    authSecret: records-repository-auth
+    passwordSecret: repository-key
+    # Omit only if this installation has no secondary recovery source.
+    recovery:
+      host: secondary.example.org
+      repository: records
+      credentialsSecret: secondary-reader
 ```
 
 ```sh
 helm upgrade --install backup ./chart -n backup -f endpoint-values.yaml
-kubectl -n backup rollout status deployment/backup-restic --timeout=5m
-kubectl -n backup logs deployment/backup-restic -c require-initialized-repositories
+kubectl -n backup wait --for=condition=Ready resticapplication/backup-restic --timeout=30m
+kubectl -n backup get resticapplication backup-restic -o json
+kubectl -n backup logs job/SELECTED_LIFECYCLE_JOB
 kubectl -n backup get service backup-restic
 ```
 
-Provide DNS/routing for the TLS hostname to this Service; the chart does not provision DNS, ingress, load balancers or certificates. Its NetworkPolicy permits ingress only to TLS port 8443 when enforced by the cluster CNI. The rest-server listeners remain loopback-only even without policy enforcement. Secret rotation requires a Deployment restart so nginx reloads authentication/TLS files.
+Provide DNS/routing for the TLS hostname to this Service; the chart does not provision DNS, ingress, load balancers or certificates. Its NetworkPolicy permits ingress only to TLS port 8443 when enforced by the cluster CNI. The rest-server listeners remain loopback-only even without policy enforcement. Changes to local password, authentication or TLS Secrets trigger controlled re-admission and endpoint restart.
+
+Require `status.observedGeneration` and the selected condition's `observedGeneration` to equal live `metadata.generation`. `Ready=True` reports the current running endpoint, `Stopped=True` reports drained application work, and `Failed=True` retains a refused or interrupted lifecycle. A successful Helm invocation is not lifecycle completion; with Helm 4 use `--wait=legacy` for controller infrastructure and inspect application status separately. `status.operation` binds the admitted Job, application/PVC ownership, initiating generation and input hash; stale or missing execution results cannot open access.
+
+The supplied `Dockerfile` builds the controller and worker from this checkout. Build it on an authorized build host, retain the image and exact source version independently, and install its immutable reference. No published controller image is implied by this source package. Qualification below imports its locally built image into a disposable Hetzner cluster without publishing it.
+
+Upgrading the former endpoint-only chart is an ownership cutover with interruption: retain the PVC/Secrets, add each repository's `passwordSecret` and the package image reference, apply `chart/crds/`, then upgrade. Helm removes the old directly rendered endpoint resources; the controller recreates them only after native admission. Do not run the old release or another controller against the same claim. CRD changes require explicit `kubectl apply -f chart/crds/`; Helm does not upgrade installed CRDs.
+
+### Durable stop and replacement
+
+Set run/stop intent through Helm, not by scaling generated Deployments:
+
+```sh
+helm upgrade backup ./chart -n backup -f endpoint-values.yaml \
+  --set application.replicas=0
+kubectl -n backup wait --for=condition=Stopped resticapplication/backup-restic --timeout=5m
+kubectl -n backup get resticapplication backup-restic -o json
+kubectl -n backup get pods,jobs,cronjobs
+```
+
+Retain `application.replicas: 0` in the old installation's versioned values. The controller withdraws serving, suspends new copy admission, scales the endpoint down and gracefully terminates running lifecycle/copy work. Workers also check live application intent before and during native work; Kubernetes API failure cancels them rather than permitting detached replication. Restic receives SIGINT so it can release its native locks; a bounded kill is a last resort. Stop completes only after Deployment and ReplicaSet scale-down is acknowledged and active PVC-using Pods have gone. It remains effective when the controller or cluster restarts. Cancellation deletes active Jobs and their Pods, so export their logs before stopping if those diagnostics must be retained.
+
+For a planned replacement, first obtain current-generation `Stopped=True`, confirm there are no active endpoint/lifecycle/copy Pods and preserve that stop intent. If final primary-only history must be preserved, let replication finish and verify the secondary before stopping. Install the replacement with a fresh claim, the retained configuration/credentials and the surviving secondary as recovery source. After automatic reconstruction and `Ready=True`, verify an older recovery point, a new backup and access protection, then switch the service route. Keep the old installation stopped or retire it; do not reapply its old running values.
+
+For destroyed infrastructure, establish that the old primary can no longer serve or replicate before activating its replacement. An unreachable primary is not proof of retirement. This package does not invent cross-cluster fencing: if the old primary might still be active and its authority cannot independently be withdrawn, do not activate a replacement. Changing DNS alone is insufficient. Claim ownership prevents competing controllers from adopting the same PVC inside the supported cluster; it does not fence another provider.
+
+An interrupted state-changing worker leaves a durable marker on the PVC. A failed or missing admitted Job is also retained as failure in application status. A later restart or run intent does not clear either failure. Inspect the Job, worker logs and native locks; retain evidence, discard the failed target and repeat ordinary installation on fresh storage. Do not remove the marker or blindly unlock to make startup succeed. The secondary stays usable with its separate reader credentials; reconstruction never runs exclusive maintenance or deletion there.
+
+For damaged-history diagnosis, enumerate native IDs with `restic list snapshots` and inspect each with `restic cat snapshot FULL_ID`. Restic's presentation command `snapshots --json` may warn and omit unreadable objects while returning success. Lifecycle observation therefore uses the strict object inventory, not an apparently empty presentation listing.
+
+Transient backend errors follow Restic 0.19.1's native 15-minute retry window per operation. During retries the lifecycle remains unserved and logs the underlying errors; exhausted retries produce `Failed`, never initialization. Stop intent cancels those native waits too.
 
 ### Scheduled replication
 
@@ -103,26 +160,24 @@ Configure each destination in the primary endpoint's customer Helm values. Each 
 ```yaml
 replication:
   - name: secondary
-    repository: keycloak
-    sourceCredentialsSecret: keycloak-replication-source
+    repository: records
+    sourceCredentialsSecret: repository-key
     destination:
       host: secondary.example.org
-      repository: keycloak
-      credentialsSecret: keycloak-replication-destination
+      repository: records
+      credentialsSecret: records-replication-destination
     schedule: "*/15 * * * *"
     timeZone: Etc/UTC
     suspend: false
     activeDeadlineSeconds: 3600
 ```
 
-The source must name a declared local repository. Destination hosts are credential-free HTTPS DNS names, with port 443 and a declared repository path. Entry names must be unique and at most 20 characters. Deploy and initialize the secondary separately, with its own PVC, encryption password, authentication credentials and TLS certificate. For a new secondary use `restic init --from-repo ... --from-password-file ... --copy-chunker-params` while the primary is accessible; never reinitialize an existing secondary.
+The source must name a declared local repository. Destination hosts are credential-free HTTPS DNS names, with port 443 and a declared repository path. Entry names must be unique and at most 20 characters. Deploy the secondary separately with its own PVC, encryption password, authentication credentials and TLS certificate. For a new secondary, configure primary reader access as its recovery source: the same lifecycle copies native chunker parameters and retained history. Once established, its startup does not depend on the primary. Never reinitialize an existing secondary.
 
-Create these Secrets in the primary endpoint's namespace from independently protected files, not plaintext Helm values:
+The source `repository-key` already supplies the local password. Create the destination Secret in the primary endpoint's namespace from independently protected files, not plaintext Helm values:
 
 ```sh
-kubectl -n backup create secret generic keycloak-replication-source \
-  --from-file=password=/protected/primary/password
-kubectl -n backup create secret generic keycloak-replication-destination \
+kubectl -n backup create secret generic records-replication-destination \
   --from-file=username=/protected/secondary/username \
   --from-file=restPassword=/protected/secondary/writer.restPassword \
   --from-file=password=/protected/secondary/password \
@@ -131,11 +186,13 @@ kubectl -n backup create secret generic keycloak-replication-destination \
 
 The destination `username` file must contain `writer`, not `admin`. Its transport password is specific to that secondary repository. Retain the secondary reader credentials, encryption password and CA independently of the primary provider; restore does not require the primary password or replication Secrets. Source and destination encryption passwords may differ.
 
-The worker mounts only the selected primary repository subdirectory at `/source` and uses `restic copy` against the authenticated secondary HTTPS endpoint. The source mount is writable for native lock creation/removal; the worker is a trusted backend component, not a read-only credential boundary. Required Pod affinity places it on the endpoint's node to share an existing ReadWriteOnce claim. Restic 0.19.1 shares one REST transport credential pair across repositories, so local source access avoids embedding either credential in a URL.
+The worker mounts only the selected primary repository subdirectory at `/data/REPOSITORY` and uses `restic copy` against the authenticated secondary HTTPS endpoint. The source mount is writable for native lock creation/removal; the worker is a trusted backend component, not a read-only credential boundary. Required Pod affinity places it on the endpoint's node to share an existing ReadWriteOnce claim. Restic 0.19.1 shares one REST transport credential pair across repositories, so local source access avoids embedding either credential in a URL. The worker ServiceAccount can only read its named application intent; it cannot change workloads or Secrets.
 
 Each run copies all snapshots currently available at the source. Native Restic origin/metadata matching skips existing copies; the next scheduled run catches up after an outage. Copies retain their original capture times, not the time replication ran. `concurrencyPolicy: Forbid` prevents overlap within one CronJob, while native source read and destination append locks exclude destructive maintenance across clients. Do not configure multiple jobs to copy the same source into the same destination: nonexclusive copy locks are not cross-job deduplication serialization. Use distinct destination repositories; never point replication back at the source.
 
-Schedules default to UTC. A missed start is eligible for 60 seconds; later missed ticks need not be replayed because the next run scans available history. The default one-hour active deadline bounds a stuck run and is configurable for repository size and bandwidth. Each Job has no Kubernetes retry, never unlocks or initializes repositories, and retains its native exit status. Inspect a failure before intervention; after a killed process, prove that its owner has ended before removing stale locks. Changing Secrets affects newly created Pods.
+Schedules default to UTC. A missed start is eligible for 60 seconds; later missed ticks need not be replayed because the next run scans available history. The default one-hour active deadline bounds a stuck run and is configurable for repository size and bandwidth. Each Job has no Kubernetes retry and never unlocks or initializes repositories. The wrapper preserves native error exit codes and reports cancellation as failed work. Inspect a failure before intervention; after a killed process, prove that its owner has ended before removing stale locks. The controller admits schedules only while the current application is Ready; stop suspends schedules and cancels already running copies.
+
+Each copy Job retains immutable configuration for its initiating application generation. Changing application spec cancels work from the older generation, including queued copies; the next permitted schedule uses the new configuration. Secret files remain mounted Kubernetes Secrets, so rotation affects active mounts as well as future Pods. Do not rotate credentials midway through an operation that must finish uninterrupted.
 
 Replication has its own Job status and logs, separate from application backup results:
 
@@ -157,9 +214,9 @@ The optional Job accepts only `check` (full `check --read-data`) or `forget-prun
 # Generate only the Job from the same endpoint values.
 helm template backup ./chart -n backup -f endpoint-values.yaml \
   --set maintenance.enabled=true --set maintenance.name=check-20261102 \
-  --set maintenance.repository=keycloak --set maintenance.action=check \
+  --set maintenance.repository=records --set maintenance.action=check \
   --set maintenance.host=backup-restic.backup.svc \
-  --set maintenance.credentialsSecret=keycloak-repository-admin \
+  --set maintenance.credentialsSecret=records-repository-admin \
   --show-only templates/maintenance.yaml | kubectl -n backup apply -f -
 kubectl -n backup wait --for=condition=complete job/backup-restic-check-20261102 --timeout=30m
 kubectl -n backup logs job/backup-restic-check-20261102
@@ -181,15 +238,18 @@ The scheduled qualification uses separate repository PVCs in one cluster, not an
 Run the executable scenarios only against an explicitly authorized disposable Hetzner cluster with a default StorageClass and registry access:
 
 ```sh
-BARTL_RESTIC_LAB=hetzner KUBECONFIG=/private/lab-kubeconfig node tests/kubernetes.mjs
-BARTL_RESTIC_LAB=hetzner KUBECONFIG=/private/lab-kubeconfig node tests/replication.mjs
+export BARTL_RESTIC_LAB=hetzner KUBECONFIG=/private/lab-kubeconfig
+export BARTL_RESTIC_IMAGE=REGISTRY/RETAINED_QUALIFICATION_IMAGE
+node tests/lifecycle.mjs
+node tests/kubernetes.mjs
+node tests/replication.mjs
 ```
 
-Each runner creates its own namespace and deletes it on success. Failures retain diagnostics and print the namespace cleanup command. Neither runner provisions infrastructure or establishes provider cleanup or cost; the operator must delete the lab, verify removal and record the budget outcome. Use Hetzner for these tests; Colima or local Docker requires explicit permission.
+Each runner creates its own namespace and deletes it on success. Failures retain diagnostics and print the namespace cleanup command. The runners do not provision infrastructure or establish provider cleanup or cost; the operator must delete the lab, verify removal and record the budget outcome. Use Hetzner for these tests; Colima or local Docker requires explicit permission. The controller/worker image must already be accessible to the cluster; a lab may build it on its Hetzner host and import it into containerd instead of publishing it.
 
 Run output stays outside the checkout in a private temporary directory by default. Set `BARTL_RESTIC_EVIDENCE_DIR` to an external artifact directory to select another location; paths inside the checkout, including symlink aliases, are rejected. `raw.json` holds redacted command output and diagnostic details; `qualification.json` contains the selected run summary and source provenance. Values and rendered manifests are also run artifacts, not product documentation.
 
-Source provenance captures run-start Git HEAD, dirty state and SHA-256 of the chart and test files. A run with uncommitted changes qualifies those recorded bytes, not HEAD alone. Check output isolation, compact-record selection and provenance locally without a cluster using `node --test tests/artifacts.test.mjs`.
+Source provenance captures run-start Git HEAD, dirty state and SHA-256 of the chart, controller/worker, dependency, image-build and test files. A run with uncommitted changes qualifies those recorded bytes, not HEAD alone. Run focused native boundary regressions with `go test ./...`; check output isolation, compact-record selection and provenance with `node --test tests/artifacts.test.mjs`. The cluster scenarios, not those unit tests, establish service behavior.
 
 Review the compact qualification, complete its provider cleanup/budget outcome and copy only that record into `evidence/` when updating qualification. Do not commit raw transcripts, Kubernetes object dumps or nested regression records. Retain raw output durably only when it supports a specific unresolved issue or an independently referenced approval; record that reference and retain the exact supporting version. Existing qualification provenance identifies original Git versions without rewriting history.
 
@@ -198,3 +258,5 @@ Review the compact qualification, complete its provider cleanup/budget outcome a
 - [Restic: copying snapshots between repositories](https://restic.readthedocs.io/en/stable/045_working_with_repos.html#copying-snapshots-between-repositories).
 - [rest-server 0.14.0](https://github.com/restic/rest-server/blob/v0.14.0/README.md).
 - [Restic 0.19.1 copy implementation: locks, origin identity and publication](https://github.com/restic/restic/blob/v0.19.1/cmd/restic/cmd_copy.go).
+- [Restic 0.19.1 backend retry defaults](https://github.com/restic/restic/blob/v0.19.1/internal/global/global.go).
+- [Restic 0.19.1 native object listing](https://github.com/restic/restic/blob/v0.19.1/cmd/restic/cmd_list.go).

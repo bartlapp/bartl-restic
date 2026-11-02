@@ -1,0 +1,137 @@
+{{- $name := include "bartl-restic.name" . -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}-controller
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}-worker
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name }}-controller
+rules:
+  - apiGroups: [restic.bartl.sh]
+    resources: [resticapplications]
+    resourceNames: [{{ $name | quote }}]
+    verbs: [get, list, watch, update, patch]
+  - apiGroups: [restic.bartl.sh]
+    resources: [resticapplications/status, resticapplications/finalizers]
+    resourceNames: [{{ $name | quote }}]
+    verbs: [get, update, patch]
+  - apiGroups: ['']
+    resources: [secrets]
+    resourceNames:
+      - {{ .Values.tlsSecret | quote }}
+      {{- range .Values.repositories }}
+      - {{ .authSecret | quote }}
+      - {{ .passwordSecret | quote }}
+      {{- end }}
+      {{- range .Values.replication }}
+      - {{ .sourceCredentialsSecret | quote }}
+      {{- end }}
+    verbs: [get]
+  - apiGroups: ['']
+    resources: [persistentvolumeclaims]
+    resourceNames: [{{ .Values.existingClaim | quote }}]
+    verbs: [get, update, patch]
+  - apiGroups: ['']
+    resources: [pods]
+    verbs: [get, list]
+  - apiGroups: ['']
+    resources: [services, configmaps]
+    verbs: [get, create, update, patch]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, create, update, patch]
+  - apiGroups: [apps]
+    resources: [replicasets]
+    verbs: [get, list]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get, create, update, patch]
+  - apiGroups: [batch]
+    resources: [jobs, cronjobs]
+    verbs: [get, list, create, update, patch, delete]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, create, update]
+  - apiGroups: ['']
+    resources: [events]
+    verbs: [create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}-controller
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $name }}-controller
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name }}-worker
+rules:
+  - apiGroups: [restic.bartl.sh]
+    resources: [resticapplications]
+    resourceNames: [{{ $name | quote }}]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}-worker
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}-worker
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $name }}-worker
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}-controller
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}-controller
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $name }}-controller
+    spec:
+      serviceAccountName: {{ $name }}-controller
+      containers:
+        - name: controller
+          image: {{ required "image is required" .Values.image | quote }}
+          command: [/bartl-restic-controller]
+          env:
+            - name: WATCH_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: APPLICATION_NAME
+              value: {{ $name | quote }}
+            - name: HELM_RELEASE
+              value: {{ .Release.Name | quote }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081

@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 
@@ -54,10 +54,15 @@ export function snapshotSource(root) {
       else throw new Error(`Unsupported source entry: ${path}`);
     }
   }
-  visit('chart'); visit('tests');
+  const inputs = ['chart', 'tests', 'api', 'cmd', 'internal', 'go.mod', 'go.sum', 'Dockerfile'];
+  for (const path of inputs) {
+    if (!existsSync(join(root, path))) continue;
+    if (lstatSync(join(root, path)).isDirectory()) visit(path);
+    else files.push({ path, sha256: createHash('sha256').update(readFileSync(join(root, path))).digest('hex') });
+  }
   return { captured: new Date().toISOString(), head: git(['rev-parse', 'HEAD']),
     dirty: git(['status', '--porcelain', '--untracked-files=all']) !== '',
-    relevantDirty: git(['status', '--porcelain', '--untracked-files=all', '--', 'chart', 'tests']) !== '', files };
+    relevantDirty: git(['status', '--porcelain', '--untracked-files=all', '--', ...inputs]) !== '', files };
 }
 
 export function failureReason(error) {

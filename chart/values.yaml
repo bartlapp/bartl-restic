@@ -1,12 +1,21 @@
+# Combined controller and native worker image built from this package.
+image: ""
+application:
+  replicas: 1
 # Existing claim; this chart never creates or deletes repository storage.
 existingClaim: ""
 # Existing kubernetes.io/tls Secret with tls.crt and tls.key.
 tlsSecret: ""
-# Every directory must already contain a Restic config and repository directories.
-# Each Secret contains htpasswd with only reader, writer and admin accounts.
+# Each repository has an independent native key (Secret key password) and endpoint
+# authentication (Secret key htpasswd with reader, writer and admin accounts).
 repositories: []
 # - name: keycloak
 #   authSecret: keycloak-repository-auth
+#   passwordSecret: keycloak-repository-key
+#   recovery:
+#     host: backup.secondary.example.com
+#     repository: keycloak
+#     credentialsSecret: keycloak-secondary-reader
 
 # Optional backend-owned scheduled copies into independently initialized repositories.
 # Source Secret needs only password. Destination Secret contains username (writer),

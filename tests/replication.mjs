@@ -16,6 +16,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const namespace = `restic-copy-${Date.now().toString(36)}-${randomBytes(3).toString('hex')}`;
 const directory = createArtifactDirectory(root, namespace);
 const source = snapshotSource(root);
+if (!process.env.BARTL_RESTIC_IMAGE) throw new Error('Require BARTL_RESTIC_IMAGE imported into the lab cluster.');
 const privateDir = join(directory, 'private');
 mkdirSync(privateDir, { mode: 0o700 });
 const chart = join(root, 'chart');
@@ -58,6 +59,16 @@ async function until(name, check, milliseconds = 120000) {
   const deadline = Date.now() + milliseconds;
   while (Date.now() < deadline) { const value = check(); if (value) return value; await sleep(1500); }
   throw new Error(`Timed out: ${name}`);
+}
+async function applicationState(name, state) {
+  return until(`${name} current application ${state}`, () => {
+    const app = JSON.parse(kubectl(['get', 'resticapplication', `${name}-restic`, '-o', 'json'], { record: false }).stdout);
+    return app.status?.state === state && app.status.observedGeneration === app.metadata.generation ? app : null;
+  }, 600000);
+}
+async function stop(name) {
+  kubectl(['patch', 'resticapplication', `${name}-restic`, '--field-manager=helm', '--type=merge', '-p', '{"spec":{"replicas":0}}']);
+  await applicationState(name, 'Stopped');
 }
 const exec = (pod, script, options) => kubectl(['exec', pod, '--', '/bin/sh', '-ec', script], options);
 function resticScript(endpoint, role, operation) {
@@ -102,7 +113,9 @@ async function idle() {
   await until('all copy jobs finished', () => !jobs().some(job => job.status?.active), 240000);
 }
 function suspend(value) {
-  kubectl(['patch', 'cronjob', cronName, '--type=merge', '-p', JSON.stringify({ spec: { suspend: value } })]);
+  const app = JSON.parse(kubectl(['get', 'resticapplication', 'primary-restic', '-o', 'json']).stdout);
+  kubectl(['patch', 'resticapplication', 'primary-restic', '--field-manager=helm', '--type=merge', '-p', JSON.stringify({ spec: { replication: app.spec.replication.map(copy => ({ ...copy, suspend: value })) } })]);
+  kubectl(['wait', `cronjob/${cronName}`, `--for=jsonpath={.spec.suspend}=${value}`, '--timeout=5m'], { timeout: 330000 });
 }
 function correlate(source, destination, name) {
   assert(name, source.length === 2 && destination.length === 2 && source.every(point => destination.some(copy => copy.original === (point.original || point.id) && copy.tree === point.tree && copy.time === point.time)), { source, destination });
@@ -154,35 +167,32 @@ try {
     apply({ apiVersion: 'v1', kind: 'PersistentVolumeClaim', metadata: { name: `${endpoint.name}-data` }, spec: { accessModes: ['ReadWriteOnce'], resources: { requests: { storage: '1Gi' } } } });
   }
   secret('source-key', { password: endpoints.primary.password });
-  apply({ apiVersion: 'v1', kind: 'Pod', metadata: { name: 'seed' }, spec: { automountServiceAccountToken: false, restartPolicy: 'Never', containers: [{ name: 'seed', image,
-    command: ['/bin/sh', '-ec', 'restic -r /primary/alpha --password-file /primary-key/password init; restic -r /secondary/alpha --password-file /secondary-key/password init --from-repo /primary/alpha --from-password-file /primary-key/password --copy-chunker-params'],
-    volumeMounts: ['primary', 'secondary'].flatMap(name => [{ name: `${name}-data`, mountPath: `/${name}` }, { name: `${name}-key`, mountPath: `/${name}-key`, readOnly: true }]) }],
-    volumes: ['primary', 'secondary'].flatMap(name => [{ name: `${name}-data`, persistentVolumeClaim: { claimName: `${name}-data` } }, { name: `${name}-key`, secret: { secretName: `${name}-key` } }]) } });
-  await until('explicit independent initialization', () => {
-    const pod = JSON.parse(kubectl(['get', 'pod', 'seed', '-o', 'json'], { record: false }).stdout);
-    if (pod.status.phase === 'Failed') throw new Error('Seed failed; inspect seed logs');
-    return pod.status.phase === 'Succeeded';
-  }, 300000);
-  kubectl(['logs', 'seed']);
-  kubectl(['delete', 'pod', 'seed', '--wait=true']);
-  evidence.pvcs = JSON.parse(kubectl(['get', 'pvc', '-o', 'json']).stdout).items.map(pvc => ({ name: pvc.metadata.name, uid: pvc.metadata.uid, volumeName: pvc.spec.volumeName }));
-  assert('independent primary and secondary volumes', evidence.pvcs.length === 2 && new Set(evidence.pvcs.map(pvc => pvc.volumeName)).size === 2);
-  for (const name of ['secondary', 'primary']) {
-    const values = { existingClaim: `${name}-data`, tlsSecret: `${name}-tls`, repositories: [{ name: 'alpha', authSecret: `${name}-auth` }] };
-    if (name === 'primary') values.replication = [{ name: 'alpha', repository: 'alpha', sourceCredentialsSecret: 'source-key', destination: { host: endpoints.secondary.host, repository: 'alpha', credentialsSecret: 'secondary-writer' }, schedule: '* * * * *' }];
+  const installationValues = {};
+  for (const name of ['primary', 'secondary']) {
+    const values = { image: process.env.BARTL_RESTIC_IMAGE, existingClaim: `${name}-data`, tlsSecret: `${name}-tls`,
+      repositories: [{ name: 'alpha', authSecret: `${name}-auth`, passwordSecret: `${name}-key` }] };
+    if (name === 'secondary') values.repositories[0].recovery = { host: endpoints.primary.host, repository: 'alpha', credentialsSecret: 'primary-reader' };
+    installationValues[name] = values;
     const valuesFile = join(directory, `${name}-values.json`);
     writeFileSync(valuesFile, JSON.stringify(values, null, 2) + '\n');
     const args = [name, chart, '--namespace', namespace, '-f', valuesFile];
     writeFileSync(join(directory, `${name}-rendered.yaml`), command('helm', ['template', ...args]).stdout);
-    command('helm', ['upgrade', '--install', ...args, '--wait', '--timeout', '5m'], { timeout: 330000 });
+    command('helm', ['upgrade', '--install', ...args, '--wait=legacy', '--timeout', '5m'], { timeout: 330000 });
+    await applicationState(name, 'Ready');
     const deployed = JSON.parse(kubectl(['get', 'deployment', endpoints[name].deployment, '-o', 'json']).stdout);
     evidence.environment.endpointImages.push(...deployed.spec.template.spec.containers.map(({ name: container, image }) => ({ endpoint: name, name: container, image })));
     client(`${name}-client`, name, ['writer', 'reader', 'admin']);
     await until(`${name} authenticated TLS access`, () => restic(name, 'reader', 'cat config', { allowFailure: true, record: false }).status === 0);
   }
+  evidence.pvcs = JSON.parse(kubectl(['get', 'pvc', '-o', 'json']).stdout).items.map(pvc => ({ name: pvc.metadata.name, uid: pvc.metadata.uid, volumeName: pvc.spec.volumeName }));
+  assert('independent primary and secondary volumes', evidence.pvcs.length === 2 && evidence.pvcs.every(pvc => pvc.volumeName) && new Set(evidence.pvcs.map(pvc => pvc.volumeName)).size === 2);
   evidence.environment.restic = restic('primary', 'reader', 'version').stdout.trim();
   const configs = Object.fromEntries(['primary', 'secondary'].map(name => [name, JSON.parse(restic(name, 'reader', 'cat config').stdout)]));
   assert('separate repository identities and shared chunker parameters', configs.primary.id !== configs.secondary.id && configs.primary.chunker_polynomial === configs.secondary.chunker_polynomial, { configs });
+  installationValues.primary.replication = [{ name: 'alpha', repository: 'alpha', sourceCredentialsSecret: 'source-key', destination: { host: endpoints.secondary.host, repository: 'alpha', credentialsSecret: 'secondary-writer' }, schedule: '* * * * *' }];
+  writeFileSync(join(directory, 'primary-values.json'), JSON.stringify(installationValues.primary, null, 2) + '\n');
+  command('helm', ['upgrade', 'primary', chart, '--namespace', namespace, '-f', join(directory, 'primary-values.json')]);
+  await applicationState('primary', 'Ready');
   cronUID = JSON.parse(kubectl(['get', 'cronjob', cronName, '-o', 'json']).stdout).metadata.uid;
   exec('primary-client', 'mkdir /fixture; dd if=/dev/urandom of=/fixture/payload bs=1048576 count=16; sha256sum /fixture/payload');
   evidence.payloadSHA256 = exec('primary-client', 'sha256sum /fixture/payload').stdout.trim().split(/\s/)[0];
@@ -222,6 +232,7 @@ try {
   const selected = destination.find(point => point.original === first.id).id;
   assert('recovery binds retained full secondary ID', /^[a-f0-9]{64}$/.test(selected), { selected, source: first.id });
   suspend(true); await idle();
+  await stop('primary');
   command('helm', ['uninstall', 'primary', '--namespace', namespace, '--wait', '--timeout', '3m'], { timeout: 210000 });
   kubectl(['delete', 'pod', 'primary-client', '--wait=true']);
   kubectl(['delete', 'pvc', 'primary-data', '--wait=true', '--timeout=2m'], { timeout: 150000 });
@@ -238,6 +249,7 @@ try {
   assert('full secondary data check passes via separate admin access', true);
   evidence.status = 'passed';
   if (process.env.BARTL_RESTIC_KEEP_NAMESPACE !== '1') {
+    await stop('secondary');
     kubectl(['delete', 'namespace', namespace, '--wait=true', '--timeout=3m'], { timeout: 210000 });
     evidence.cleanup = 'owned namespace deleted';
     evidence.namespaceCleanup = 'deleted';

@@ -21,6 +21,7 @@ const host = `${endpoint}.${namespace}.svc`;
 const base = `https://${host}`;
 const directory = createArtifactDirectory(root, namespace);
 const source = snapshotSource(root);
+if (!process.env.BARTL_RESTIC_IMAGE) throw new Error('Require BARTL_RESTIC_IMAGE imported into the lab cluster.');
 const privateDir = join(directory, 'private');
 mkdirSync(privateDir, { mode: 0o700 });
 const evidence = { schema: 1, started: new Date().toISOString(), source, namespace, host, images: {
@@ -58,6 +59,16 @@ async function until(name, check, milliseconds = 120000) {
   while (Date.now() < deadline) { const value = check(); if (value) return value; await sleep(1500); }
   throw new Error(`Timed out: ${name}`);
 }
+async function applicationState(state) {
+  return until(`current application ${state}`, () => {
+    const app = JSON.parse(kubectl(['get', 'resticapplication', endpoint, '-o', 'json'], { record: false }).stdout);
+    return app.status?.state === state && app.status.observedGeneration === app.metadata.generation ? app : null;
+  }, 600000);
+}
+async function replicas(value) {
+  command('helm', ['upgrade', release, chart, '--namespace', namespace, '--reuse-values', '--set', `application.replicas=${value}`]);
+  await applicationState(value ? 'Ready' : 'Stopped');
+}
 const exec = (container, script, options) => kubectl(['exec', 'client', '-c', container, '--', '/bin/sh', '-ec', script], options);
 const resticScript = (role, operation) => `export RESTIC_REPOSITORY='rest:${base}/alpha/' RESTIC_PASSWORD_FILE=/credentials/password RESTIC_REST_USERNAME=${role}; export RESTIC_REST_PASSWORD="$(cat /credentials/alpha-${role})"; restic --cacert /credentials/ca.crt ${operation}`;
 const restic = (role, operation, options) => exec('restic', resticScript(role, operation), options);
@@ -77,8 +88,8 @@ secrets.push(credentials.password);
 for (const repo of ['alpha', 'beta']) for (const role of roles) {
   credentials[`${repo}-${role}`] = randomBytes(24).toString('hex'); secrets.push(credentials[`${repo}-${role}`]);
 }
-const values = { existingClaim: 'repositories', tlsSecret: 'repository-tls', repositories: [
-  { name: 'alpha', authSecret: 'alpha-auth' }, { name: 'beta', authSecret: 'beta-auth' },
+const values = { image: process.env.BARTL_RESTIC_IMAGE, existingClaim: 'repositories', tlsSecret: 'repository-tls', repositories: [
+  { name: 'alpha', authSecret: 'alpha-auth', passwordSecret: 'repository-key' }, { name: 'beta', authSecret: 'beta-auth', passwordSecret: 'repository-key' },
 ] };
 const valuesFile = join(directory, 'values.json');
 writeFileSync(valuesFile, JSON.stringify(values, null, 2));
@@ -149,22 +160,13 @@ try {
     for (const role of roles) credentials[`${repo}-${role}.netrc`] = `machine ${host} login ${role} password ${credentials[`${repo}-${role}`]}\n`;
   }
   secret('clients', credentials);
+  secret('repository-key', { password: credentials.password });
   apply({ apiVersion: 'v1', kind: 'Secret', metadata: { name: 'repository-tls' }, type: 'kubernetes.io/tls', stringData: { 'tls.crt': readFileSync(cert, 'utf8'), 'tls.key': readFileSync(key, 'utf8') } });
   apply({ apiVersion: 'v1', kind: 'PersistentVolumeClaim', metadata: { name: 'repositories' }, spec: { accessModes: ['ReadWriteOnce'], resources: { requests: { storage: '2Gi' } } } });
-  apply({ apiVersion: 'v1', kind: 'Pod', metadata: { name: 'seed' }, spec: { automountServiceAccountToken: false, restartPolicy: 'Never', containers: [{ name: 'seed', image: evidence.images.restic,
-    command: ['/bin/sh', '-ec', 'export RESTIC_PASSWORD_FILE=/credentials/password; restic -r /data/alpha init; restic -r /data/beta init'],
-    volumeMounts: [{ name: 'data', mountPath: '/data' }, { name: 'credentials', mountPath: '/credentials', readOnly: true }] }],
-    volumes: [{ name: 'data', persistentVolumeClaim: { claimName: 'repositories' } }, { name: 'credentials', secret: { secretName: 'clients' } }] } });
-  await until('seed Pod completion', () => {
-    const pod = JSON.parse(kubectl(['get', 'pod', 'seed', '-o', 'json'], { record: false }).stdout);
-    if (pod.status.phase === 'Failed') throw new Error('Repository seed failed; inspect seed logs');
-    return pod.status.phase === 'Succeeded';
-  }, 300000);
-  kubectl(['logs', 'seed']);
-  kubectl(['delete', 'pod', 'seed', '--wait=true']);
   evidence.pvcUID = JSON.parse(kubectl(['get', 'pvc', 'repositories', '-o', 'json']).stdout).metadata.uid;
   const rendered = render(); writeFileSync(join(directory, 'endpoint-rendered.yaml'), rendered);
-  command('helm', ['upgrade', '--install', release, chart, '--namespace', namespace, '-f', valuesFile, '--wait', '--timeout', '5m'], { timeout: 330000 });
+  command('helm', ['upgrade', '--install', release, chart, '--namespace', namespace, '-f', valuesFile, '--wait=legacy', '--timeout', '5m'], { timeout: 330000 });
+  await applicationState('Ready');
   const deployed = JSON.parse(kubectl(['get', 'deployment', endpoint, '-o', 'json']).stdout);
   evidence.images.endpoint = deployed.spec.template.spec.containers.map(({ name, image }) => ({ name, image }));
   evidence.environment.endpointImages = evidence.images.endpoint.map(image => ({ endpoint, ...image }));
@@ -231,34 +233,30 @@ try {
   const remaining = snapshots().map(point => point.id);
   assert('forget-prune removes only selected recovery point', !remaining.includes(disposable) && remaining.includes(evidence.snapshotID), { remaining });
   kubectl(['delete', 'deployment', endpoint, '--wait=true']);
-  command('helm', ['upgrade', release, chart, '--namespace', namespace, '-f', valuesFile, '--wait', '--timeout', '5m'], { timeout: 330000 });
+  command('helm', ['upgrade', release, chart, '--namespace', namespace, '-f', valuesFile, '--wait=legacy', '--timeout', '5m'], { timeout: 330000 });
+  await applicationState('Ready');
   kubectl(['rollout', 'status', `deployment/${endpoint}`, '--timeout=5m'], { timeout: 330000 });
   await waitHTTPS('Deployment replacement');
   const pvcAfter = JSON.parse(kubectl(['get', 'pvc', 'repositories', '-o', 'json']).stdout).metadata.uid;
   const repoAfter = JSON.parse(restic('reader', 'cat config').stdout).id;
   assert('replacement preserves PVC UID, repository identity and snapshot', pvcAfter === evidence.pvcUID && repoAfter === evidence.repositoryID && snapshots().some(point => point.id === evidence.snapshotID), { pvcUID: pvcAfter, repositoryID: repoAfter, snapshotID: evidence.snapshotID });
   await restoreAndCompare(evidence.snapshotID, '/restore-after');
-  const missingValues = { ...values, repositories: [...values.repositories, { name: 'missing', authSecret: 'alpha-auth' }] };
-  const missingFile = join(directory, 'missing-values.json'); writeFileSync(missingFile, JSON.stringify(missingValues));
-  command('helm', ['upgrade', release, chart, '--namespace', namespace, '-f', missingFile]);
-  const failed = await until('missing repository rejected by startup init container', () => {
-    const pods = JSON.parse(kubectl(['get', 'pods', '-l', `app.kubernetes.io/name=${endpoint}`, '-o', 'json'], { record: false }).stdout);
-    for (const pod of pods.items) {
-      const init = pod.status.initContainerStatuses?.find(item => item.name === 'require-initialized-repositories');
-      if (init?.state?.terminated?.exitCode || init?.lastState?.terminated?.exitCode) return pod;
-    }
-    return null;
-  });
-  const startupLogs = kubectl(['logs', failed.metadata.name, '-c', 'require-initialized-repositories']).stdout;
-  assert('missing repository fails visibly without implicit initialization', /Repository missing is missing its config/.test(startupLogs) && failed.spec.initContainers[0].volumeMounts.find(mount => mount.mountPath === '/data')?.readOnly === true, { logs: bounded(startupLogs), initReadOnly: true });
-  command('helm', ['upgrade', release, chart, '--namespace', namespace, '-f', valuesFile, '--wait', '--timeout', '5m'], { timeout: 330000 });
-  await waitHTTPS('original startup values restored');
-  kubectl(['exec', `deployment/${endpoint}`, '-c', 'repository', '--', '/bin/sh', '-ec', 'test ! -e /data/missing/config']);
-  assert('missing repository was not initialized on PVC', true);
-  assert('startup failure preserves existing repository and point', JSON.parse(restic('reader', 'cat config').stdout).id === evidence.repositoryID && snapshots().some(point => point.id === evidence.snapshotID));
-  await restoreAndCompare(evidence.snapshotID, '/restore-resumed');
+  await replicas(0);
+  apply({ apiVersion: 'v1', kind: 'Pod', metadata: { name: 'damage' }, spec: { automountServiceAccountToken: false, restartPolicy: 'Never',
+    containers: [{ name: 'damage', image: evidence.images.restic, command: ['/bin/sh', '-ec', 'mkdir /data/damaged; printf damaged > /data/damaged/orphan'],
+      volumeMounts: [{ name: 'data', mountPath: '/data' }] }], volumes: [{ name: 'data', persistentVolumeClaim: { claimName: 'repositories' } }] } });
+  await until('damaged state fixture created', () => JSON.parse(kubectl(['get', 'pod', 'damage', '-o', 'json'], { record: false }).stdout).status.phase === 'Succeeded');
+  kubectl(['delete', 'pod', 'damage', '--wait=true']);
+  const damagedValues = { ...values, repositories: [...values.repositories, { name: 'damaged', authSecret: 'alpha-auth', passwordSecret: 'repository-key' }] };
+  const damagedFile = join(directory, 'damaged-values.json'); writeFileSync(damagedFile, JSON.stringify(damagedValues));
+  command('helm', ['upgrade', release, chart, '--namespace', namespace, '-f', damagedFile]);
+  const failed = await applicationState('Failed');
+  assert('damaged repository fails visibly without implicit initialization', failed.status.state === 'Failed');
+  const slices = JSON.parse(kubectl(['get', 'endpointslices', '-l', `kubernetes.io/service-name=${endpoint}`, '-o', 'json']).stdout);
+  assert('damaged startup withholds ordinary access', !slices.items.some(slice => slice.endpoints?.some(address => address.conditions?.ready !== false)));
   evidence.status = 'passed';
   if (process.env.BARTL_RESTIC_KEEP_NAMESPACE !== '1') {
+    await replicas(0);
     kubectl(['delete', 'namespace', namespace, '--wait=true', '--timeout=3m'], { timeout: 210000 });
     evidence.cleanup = 'owned namespace deleted';
     evidence.namespaceCleanup = 'deleted';

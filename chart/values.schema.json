@@ -2,18 +2,22 @@
   "$schema": "https://json-schema.org/draft-07/schema#",
   "type": "object",
   "additionalProperties": false,
-  "required": ["existingClaim", "tlsSecret", "repositories", "maintenance"],
+  "required": ["image", "application", "existingClaim", "tlsSecret", "repositories", "maintenance"],
   "properties": {
+    "image": {"type": "string", "minLength": 1},
+    "application": {"type": "object", "additionalProperties": false, "required": ["replicas"], "properties": {"replicas": {"type": "integer", "minimum": 0, "maximum": 1}}},
     "existingClaim": {"type": "string", "minLength": 1},
     "tlsSecret": {"type": "string", "minLength": 1},
     "repositories": {
       "type": "array", "minItems": 1,
       "items": {
         "type": "object", "additionalProperties": false,
-        "required": ["name", "authSecret"],
+        "required": ["name", "authSecret", "passwordSecret"],
         "properties": {
           "name": {"type": "string", "pattern": "^[a-z0-9]([a-z0-9-]{0,56}[a-z0-9])?$"},
-          "authSecret": {"type": "string", "minLength": 1}
+          "authSecret": {"type": "string", "minLength": 1},
+          "passwordSecret": {"type": "string", "minLength": 1},
+          "recovery": {"$ref": "#/properties/replication/items/properties/destination"}
         }
       }
     },

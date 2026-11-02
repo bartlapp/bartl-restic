@@ -26,9 +26,9 @@ test('artifact bases reject checkout paths, including nonexistent children throu
   symlinkSync(checkout, alias, 'dir');
   for (const base of [checkout, join(checkout, 'evidence', 'future'), alias, join(alias, 'not-created', 'child')]) {
     assert.throws(() => createArtifactDirectory(checkout, 'boundary', base), /outside the checkout/);
-    for (const runner of ['kubernetes.mjs', 'replication.mjs']) {
+    for (const runner of ['kubernetes.mjs', 'replication.mjs', 'lifecycle.mjs']) {
       const result = spawnSync(process.execPath, [join(checkout, 'tests', runner)], {
-        encoding: 'utf8', env: { ...process.env, BARTL_RESTIC_LAB: 'hetzner', KUBECONFIG: '/not-used', BARTL_RESTIC_EVIDENCE_DIR: base },
+        encoding: 'utf8', env: { ...process.env, BARTL_RESTIC_LAB: 'hetzner', KUBECONFIG: '/not-used', BARTL_RESTIC_IMAGE: 'fixture.invalid/restic:test', BARTL_RESTIC_EVIDENCE_DIR: base },
       });
       assert.notEqual(result.status, 0);
       assert.match(result.stderr, /Artifact directory must be outside the checkout/);
@@ -92,6 +92,17 @@ test('source snapshot binds start-time HEAD, dirty state and tested working byte
   assert.ok(start.files.some(file => file.path === 'tests/untracked.mjs'));
   writeFileSync(join(root, 'tests', 'runner.mjs'), 'later bytes\n');
   assert.notEqual(snapshotSource(root).files.find(file => file.path === 'tests/runner.mjs').sha256, start.files.find(file => file.path === 'tests/runner.mjs').sha256);
+  mkdirSync(join(root, 'cmd', 'worker'), { recursive: true });
+  mkdirSync(join(root, 'internal'));
+  mkdirSync(join(root, 'api'));
+  for (const [path, bytes] of [['api/types.go', 'package api\n'], ['cmd/worker/main.go', 'package main\n'], ['internal/native.go', 'package internal\n'], ['go.mod', 'module fixture\n'], ['go.sum', 'fixture checksum\n'], ['Dockerfile', 'FROM scratch\n']]) {
+    writeFileSync(join(root, path), bytes);
+  }
+  const native = snapshotSource(root);
+  assert.equal(native.relevantDirty, true);
+  for (const path of ['api/types.go', 'cmd/worker/main.go', 'internal/native.go', 'go.mod', 'go.sum', 'Dockerfile']) {
+    assert.equal(native.files.find(file => file.path === path)?.sha256, createHash('sha256').update(readFileSync(join(root, path))).digest('hex'));
+  }
 });
 
 test('failure summaries exclude raw diagnostics while retaining scenario and exit context', () => {
