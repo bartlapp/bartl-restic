@@ -228,6 +228,7 @@ The example host must be covered by the certificate and reachable from the Job. 
 
 Compact qualification records identify the tested source, environment, scenarios, results and material limits:
 
+- [Backup-service lifecycle, primary replacement, durable stop and corruption refusal](evidence/2026-11-02-lifecycle.json), including endpoint and scheduled-replication regressions.
 - [Scheduled replication and direct secondary restore](evidence/2026-11-02-replication.json).
 - [Kubernetes endpoint authorization, maintenance and replacement](evidence/2026-11-02-kubernetes.json).
 - [Native-process endpoint authorization](evidence/2026-11-02-endpoint.json).

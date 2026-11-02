@@ -1,0 +1,189 @@
+{
+  "schema": 2,
+  "status": "passed",
+  "scope": "Backup-service lifecycle and protected native repository recovery; synthetic application-agnostic data on one disposable Hetzner K3s cluster.",
+  "source": {
+    "testedContentCommit": "540a0f951754ceb54dfada5f10b450c49c2d0a87",
+    "runStartingCommit": "8acc4d58d0818aad09e0edd5beeb1a1a0c362032",
+    "binding": "Each run recorded working-tree SHA256 before execution. All implementation/chart inputs, its executed runner and artifacts helper were compared with Git blobs in testedContentCommit and matched; other runners were not inputs to that run. No image was published.",
+    "sourceSHA256": {
+      "chart/Chart.yaml": "4f7b2ad3e911c62388a2a123ecc81fd7aaeb5db1827f1fb3039ede5cc83fdadd",
+      "chart/crds/resticapplications.yaml": "4eb020b15fdc7d13eb8d19c140b104bf424c0915542a3f296541c5ba8ff091ce",
+      "chart/templates/_helpers.tpl": "26ad2e13b01c71fc3820bcfbf07f3322aaf076ad447f5c8ff0249f474173c21c",
+      "chart/templates/application.yaml": "f23ac11e61ba58268512bedf15dc5222c6103b56acb4a16e538846daa6fd2588",
+      "chart/templates/controller.yaml": "12fe33e58cd78f112ccd9834efc5d07cdeaf822bafc32e5ced09dc5e9c6cdaba",
+      "chart/templates/maintenance.yaml": "dc1f34db6dae6189319d3f4e0813494c9a09c0f63b444c1141bce925a178fffb",
+      "chart/values.schema.json": "3ea4640575e4044955d1d66fc69b08e36986f6f697d7824d6179ca5a1f0ba7cd",
+      "chart/values.yaml": "cca17d98cdea7c06cc83a377554840d1b0b9f67d1c0f38f86325babe13d8ccc5",
+      "tests/artifacts.mjs": "c07f8d4fbbf4cafe7d2646b9309338e4218b2d8553c875891c87900b269643f2",
+      "tests/artifacts.test.mjs": "92f8f2c1777833e7c2cb44dc02bcedadcedd1d8956243f57dc59f970ca2cbebc",
+      "tests/kubernetes.mjs": "a9a83f473f1405f2df055d0c039cce55aac2873fe2065b6d092d8190e2d6486c",
+      "tests/lifecycle.mjs": "68b151a1ec030141ac2baf5ff108cd83818cd9d79cc2236ba55c0f3465b52f39",
+      "tests/replication.mjs": "ead298e14cdfc31201c4294a34809c3ebdc3c6e986824dd6da8db2f59afa3678",
+      "api/v1alpha1/types.go": "fa2a1e3bad68778c190791efade4482f11988169cd4081d3998188faf4b88a48",
+      "cmd/controller/main.go": "973b7ec71e2618ccef08773a6ed6adeb3a1897529eb329dc1d94ab81d93a9a11",
+      "cmd/worker/main.go": "950b41c58a260951cccd9f42a3925255135e2c19b697e156d530e370ca600c61",
+      "internal/controller/controller.go": "f368e813e079698aafb47526d77ba9213b3aa5aa04f899b89a621cf42c03ba1e",
+      "internal/controller/workloads.go": "47dd979e005c5e7f58039ffe9395f65f84e3209de9cc92e6a26c47c7b785ad82",
+      "internal/native/admission.go": "7ee3db299af5357e6b11e368375b706a2242a0f72c2736827f01468996540e89",
+      "internal/native/worker.go": "8cf4cef89ca6e43b69c0c383e0ed37c29efe770470bdb55e4793007a951bcd67",
+      "internal/native/worker_test.go": "60793bf37fdf01103de9a6fde696c4b35ad966aeefbb1d5ba1b1d7b121cc0dba",
+      "go.mod": "381f787493a69f57b9dcdb540e779fc2a6c95600204f94044edcb0ad93c43f14",
+      "go.sum": "4b66b4b64a090f310ed801154b91a8093a6394cadb7af230aee4209f6883642a",
+      "Dockerfile": "3705f92bee150386a2ac4bd77318cd67ed388004adb5d6a22a34ffd3b4c5a6e8"
+    }
+  },
+  "environment": {
+    "provider": "Hetzner",
+    "serverType": "cpx32",
+    "kubernetes": "v1.36.5+k3s1",
+    "helm": "v4.3.0+gbec5b06",
+    "restic": "restic 0.19.1 compiled with go1.26.4 on linux/amd64",
+    "storage": "Independent primary and secondary local-path PVCs, with separate native repository identities and passwords.",
+    "images": {
+      "controllerWorker": "docker.io/library/bartl-restic:lifecycle-4",
+      "controllerWorkerManifest": "sha256:d6812443ca8beb285156dd544cd5a802f26045cb40c29fed63fcc84b74cb1131",
+      "resticBaseManifest": "sha256:136600b6ff6843d61d355f7f71f460a166429f35de6fd11b568fece3c9a4d510",
+      "restServer": "docker.io/restic/rest-server@sha256:d2aff06f47eb38637dff580c3e6bce4af98f386c396a25d32eb6727ec96214a5",
+      "nginx": "docker.io/library/nginx:1.28.0"
+    }
+  },
+  "runs": {
+    "lifecycle": {
+      "started": "2026-11-02T19:11:45.874Z",
+      "finished": "2026-11-02T19:29:21.489Z",
+      "result": "passed",
+      "assertionsPassed": 80,
+      "verifiedFiles": 21,
+      "runner": "tests/lifecycle.mjs",
+      "runnerSHA256": "68b151a1ec030141ac2baf5ff108cd83818cd9d79cc2236ba55c0f3465b52f39",
+      "namespaceCleanup": "deleted",
+      "rawArtifact": "/tmp/bartl-restic-lifecycle-1793643294467/restic-life-mvzmxrrj-df21ce-YD9q4o/raw.json"
+    },
+    "endpoint": {
+      "started": "2026-11-02T18:42:18.041Z",
+      "finished": "2026-11-02T18:44:55.214Z",
+      "result": "passed",
+      "assertionsPassed": 62,
+      "verifiedFiles": 21,
+      "runner": "tests/kubernetes.mjs",
+      "runnerSHA256": "a9a83f473f1405f2df055d0c039cce55aac2873fe2065b6d092d8190e2d6486c",
+      "namespaceCleanup": "deleted",
+      "rawArtifact": "/tmp/bartl-restic-lifecycle-1793643294467/restic-proof-mvzlvvn0-b75764-GnSPd0/raw.json"
+    },
+    "replication": {
+      "started": "2026-11-02T18:39:14.384Z",
+      "finished": "2026-11-02T18:48:36.447Z",
+      "result": "passed",
+      "assertionsPassed": 32,
+      "verifiedFiles": 21,
+      "runner": "tests/replication.mjs",
+      "runnerSHA256": "ead298e14cdfc31201c4294a34809c3ebdc3c6e986824dd6da8db2f59afa3678",
+      "namespaceCleanup": "deleted",
+      "rawArtifact": "/tmp/bartl-restic-lifecycle-1793643294467/restic-copy-mvzlrxxp-50bd29-ubm1Mn/raw.json"
+    }
+  },
+  "scenarios": [
+    {
+      "name": "Native startup",
+      "result": "passed",
+      "details": "Both declared repositories initialized with no configured source; a configured source with confirmed empty native history initialized a secondary. Existing primary identity survived stop/start with unavailable recovery credentials and hostname."
+    },
+    {
+      "name": "Exclusive ownership and queued work",
+      "result": "passed",
+      "details": "A second application could not admit the owned PVC. An older queued copy refused the changed generation before native destination access."
+    },
+    {
+      "name": "Primary installation and storage replacement",
+      "result": "passed",
+      "details": "Old Helm release, endpoint, PVC, credentials and original client were deleted. A new installation reconstructed both retained points using the surviving secondary and independently supplied configuration/credentials, with no manual initialization or release step."
+    },
+    {
+      "name": "Recovery and access after replacement",
+      "result": "passed",
+      "details": "Older point restored with matching SHA256; newer marker retained. Reader writes and incorrect credentials were denied, while a valid writer created a new native backup."
+    },
+    {
+      "name": "Interrupted reconstruction",
+      "result": "passed",
+      "details": "Deleting the executing worker Pod with a 30-second graceful period interrupted native copy. Failure remained across controller restart; secondary locks were released without unlock. A fresh target reconstructed successfully."
+    },
+    {
+      "name": "Durable stop during recovery",
+      "result": "passed",
+      "details": "Stop withdrew service and cancelled native recovery. The target retained its transition marker, local/secondary locks were released, controller restart remained stopped and later run intent did not clear failure."
+    },
+    {
+      "name": "Durable stop during replication",
+      "result": "passed",
+      "details": "Stop cancelled a real running copy, suspended new work, and survived controller restart without new copy Jobs. Stopped acknowledged Deployment/ReplicaSet scale-down and no active PVC users; secondary locks were released without unlock."
+    },
+    {
+      "name": "Independent secondary availability",
+      "result": "passed",
+      "details": "Byte-correct older-point restores succeeded from the secondary while interrupted-recovery, stop-recovery and replication scenarios had active native copy work."
+    },
+    {
+      "name": "Damaged local and recovery state",
+      "result": "passed",
+      "details": "Nonempty incomplete local state was refused without initializing it. A corrupt secondary snapshot that native snapshots --json omitted with exit zero was detected by strict list/cat inventory, leaving the empty target uninitialized."
+    },
+    {
+      "name": "Unreachable recovery",
+      "result": "passed",
+      "details": "DNS failure exhausted Restic native backend retries and became Failed. No target config was initialized; no custom retry or shortened native timeout was introduced."
+    },
+    {
+      "name": "Endpoint regression",
+      "result": "passed",
+      "details": "HTTPS role/repository isolation, path normalization, reader lock access, append-only writer protection, native lock exclusion, selected maintenance and intact-PVC Deployment replacement."
+    },
+    {
+      "name": "Scheduled replication regression",
+      "result": "passed",
+      "details": "Real CronJob scheduling, destination-authentication failure isolated from primary publication, catch-up, idempotence, native maintenance lock conflicts with exit 11, independent secondary history after primary deletion and cache-disabled direct restore."
+    }
+  ],
+  "recovery": {
+    "payloadSHA256": "09c18b6499a0fcec262e2ad84cb2a8a3c5df282a3ad93fd99e5f9c1e42718afe",
+    "snapshotID": "d23bcbd0446ddbbab0b83380eefe5b486db2e11d311d42cbb50f0bfc38e2cfa2",
+    "repositoryID": "85a265a8c511aa41e40b9945f064a7db8d3834c29dbb808967e6b8d4e637b6d6"
+  },
+  "localChecks": {
+    "goTest": "passed",
+    "goVet": "passed",
+    "artifactTests": "5 passed",
+    "helmLint": "passed",
+    "crdServerAcceptance": "passed"
+  },
+  "limitations": [
+    "One-cluster installation/storage replacement, not an actual cross-provider outage or independent provider fencing qualification. Replacement requires confirmed source stop/retirement; unreachable alone is insufficient.",
+    "Interrupted work used supported graceful Pod termination; no claim that SIGKILL releases native locks.",
+    "Synthetic repository data; no consumer application coordination or acceptance is included."
+  ],
+  "cleanup": {
+    "namespaces": "All owned qualification namespaces removed; only default and Kubernetes system namespaces remained before server deletion.",
+    "infrastructure": {
+      "provider": "Hetzner",
+      "serverID": 174199700,
+      "primaryIPID": 159801233,
+      "firewallID": 11953855,
+      "sshKeyID": 132107815,
+      "created": "2026-11-02T18:15:22Z",
+      "deletedAt": "2026-11-02T19:30:54.262Z",
+      "verifiedAbsent": {
+        "server": 404,
+        "primaryIP": 404,
+        "firewall": 404,
+        "sshKey": 404
+      },
+      "extraVolumes": [],
+      "backups": null
+    },
+    "budgetEUR": 5,
+    "estimatedUpperBoundEUR": 0.1154,
+    "billingNote": "Observed hourly server and IPv4 prices rounded up to two whole hours for the entire shared lab, including preliminary runs. Traffic remained within included allowance. Estimate, not invoice."
+  },
+  "artifacts": "Raw outputs and generated credentials/manifests stayed outside Git under /tmp/bartl-restic-lifecycle-1793643294467. Only this selected qualification record is retained in Git."
+}
