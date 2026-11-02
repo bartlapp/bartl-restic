@@ -26,13 +26,24 @@ For recovery of an individual endpoint, attach an intact repository PVC to a sui
 
 ## Replication mechanism
 
-`restic copy` is the leading candidate, not a selected or qualified implementation. It copies snapshots into an independently initialized repository, skips previously copied snapshots and does not mirror source deletions. The worker needs both repositories' encryption keys because copying decrypts and re-encrypts data. Matching chunker parameters at initialization support deduplication. Repository and snapshot IDs can differ between source and destination.
+`restic copy` is selected as the replication primitive on the basis of the [2 November local proof](evidence/2026-11-02-restic-copy.json) with Restic 0.19.1. It copies snapshots into an independently initialized repository, skips previously copied snapshots and does not mirror source deletions. The worker needs both repositories' encryption keys because copying decrypts and re-encrypts data. Initialize the secondary with `init --from-repo ... --copy-chunker-params` and a separate password.
 
-Storage-level replication remains an alternative only if it exposes a coherent, directly usable secondary repository with independently retained history. A cold copy alone does not satisfy the disaster-recovery objective. `rest-server` itself does not implement replication.
+Recovery selects and binds the destination's full snapshot ID. In the proof, the copied snapshot's `original` field held the source snapshot ID and its `tree` matched the source. Restic preserves an existing `original` value on further copies, so it is an origin identifier, not necessarily the immediately preceding repository's snapshot ID. Use native snapshot metadata to establish correspondence; do not assume identical snapshot IDs or treat producer-supplied metadata as proof of application completeness.
 
-Before selecting the mechanism, resolve recovery-point identification across repositories and safe retention and maintenance with replication and read-only recovery. Qualification must demonstrate direct application recovery from the secondary with the primary provider unavailable, including independent recovery inputs and protection of retained history. These checks do not make the backend application-aware.
+The copy worker uses Restic's source read lock and destination append lock. Keep destructive maintenance excluded from replication and recovery. Strictly read-only recovery cannot write these locks and still requires enforced exclusion at the service boundary. After a crash, establish that the owning operation has ended before removing a stale lock; never blindly unlock on retry. Independent secondary retention must not translate source absence into deletion.
+
+### Executed proof and remaining integration
+
+Two local filesystem repositories used separate passwords and matching chunker parameters. With the primary repository, its password file and the original capture moved out of reach, a cache-disabled restore from the secondary reproduced the 2 MiB synthetic payload's SHA-256. Deleting and pruning the primary snapshot, then running copy again, left the secondary point selectable and byte-correct.
+
+A subsequent copy of a 256 MiB synthetic payload was killed with `SIGKILL` after the first new destination pack file appeared. Only the previous snapshot remained selectable, and it still restored correctly. Retry published the new point; it restored byte-correctly with the primary unavailable. Repeating copy left the same destination snapshot IDs. This verifies recovery and idempotent retry, not a bound on retransmitted data.
+
+The killed process left stale locks. Copy retry and restore succeeded without manual unlock, but `check --read-data` exited with lock error 11. After confirming the process had exited and its PID no longer existed, removing stale locks allowed the full secondary data check to pass. The source stale lock was also removed.
+
+The proof selects the native replication mechanism, not a production deployment. HTTPS access protection, enforced exclusion for read-only clients, safe retention policy and replication scheduling remain package integration work. Qualification must demonstrate direct application recovery from the secondary with the primary provider unavailable, including independent recovery inputs and protection of retained history. These checks do not make the backend application-aware.
 
 ## Sources
 
 - [Restic: copying snapshots between repositories](https://restic.readthedocs.io/en/stable/045_working_with_repos.html#copying-snapshots-between-repositories).
 - [rest-server 0.14.0](https://github.com/restic/rest-server/blob/v0.14.0/README.md).
+- [Restic 0.19.1 copy implementation: locks, origin identity and publication](https://github.com/restic/restic/blob/v0.19.1/cmd/restic/cmd_copy.go).

@@ -1,0 +1,457 @@
+{
+  "date": "2026-11-02",
+  "scope": "Local filesystem repositories; synthetic payloads; no rest-server, Kubernetes or provider deployment",
+  "restic": {
+    "version": "restic 0.19.1 compiled with go1.26.4 on darwin/amd64",
+    "release": "https://github.com/restic/restic/releases/tag/v0.19.1",
+    "archiveSha256": "c38d579622cf602f665234c5a8c315030b6cf70656028fe6dc29a786b60e5f35"
+  },
+  "procedure": [
+    "Initialize repositories with separate random passwords and shared chunker parameters.",
+    "Back up 2 MiB random bytes; copy the selected snapshot.",
+    "Rename source repository, source password file and capture directory out of reach; restore without cache using only the secondary password; compare SHA-256.",
+    "Return source; forget and prune its snapshot; run copy again; restore retained secondary snapshot and compare SHA-256.",
+    "Back up 256 MiB new random bytes; start copy; SIGKILL after observing the first new destination pack file.",
+    "List secondary snapshots and restore the previous point; retry the interrupted copy.",
+    "Make source repository, password and capture unavailable again; restore the copied point and compare SHA-256.",
+    "Observe exclusive integrity check blocked by stale lock; verify killed process reaped with exit 137 and PID absent (ESRCH); unlock; run full data check.",
+    "Return source; remove its stale lock; repeat copy and verify identical secondary snapshot IDs."
+  ],
+  "results": {
+    "first": {
+      "source": "89fa7be6723b89f22915bb4fef8db4ed2aa27cdc41f8411602f48fe776e68046",
+      "destination": "078c2551408827c9daa1d92bc9b63f51e8011e3b5752c96515e08e10ff14454b",
+      "original": "89fa7be6723b89f22915bb4fef8db4ed2aa27cdc41f8411602f48fe776e68046",
+      "sha256": "0ef101841e0e2f41bfacaab58063dc5ebf66aa92e453a2ffb899cc6ede1ddd56",
+      "directRestoreWithSourceUnavailable": true,
+      "retainedAfterSourceForgetPruneAndSubsequentCopy": true
+    },
+    "interruption": {
+      "payloadBytes": 268435456,
+      "signal": "SIGKILL",
+      "exitCode": 137,
+      "newPackFilesObserved": 1,
+      "selectableSnapshotsAfterKill": [
+        "078c2551408827c9daa1d92bc9b63f51e8011e3b5752c96515e08e10ff14454b"
+      ],
+      "previousSnapshotRestored": true
+    },
+    "retry": {
+      "source": "1b31027f4952fc876b1081d14693ad1c9ec757346d423e3a0b6c950e65abdc3a",
+      "destination": "02d0d0c492efd53160dc6c6308b0b867a8b3769aaec8e6fb4af43a73b6b4d2ff",
+      "original": "1b31027f4952fc876b1081d14693ad1c9ec757346d423e3a0b6c950e65abdc3a",
+      "sha256": "f1b4a278690b1821304824809c2ccbac078b24258cca40ab1bc4714dee900be7",
+      "directRestoreWithSourceUnavailable": true,
+      "manualUnlockRequiredForCopy": false,
+      "repeatCopySnapshotIds": [
+        "078c2551408827c9daa1d92bc9b63f51e8011e3b5752c96515e08e10ff14454b",
+        "02d0d0c492efd53160dc6c6308b0b867a8b3769aaec8e6fb4af43a73b6b4d2ff"
+      ]
+    },
+    "maintenance": {
+      "exclusiveCheckBeforeUnlockExit": 11,
+      "interruptedProcessReaped": true,
+      "interruptedPidAbsent": true,
+      "fullDataCheckAfterUnlockExit": 0,
+      "locksRemovedOnBothRepositories": true
+    }
+  },
+  "commands": [
+    {
+      "args": [
+        "version"
+      ],
+      "code": 0,
+      "stdout": "restic 0.19.1 compiled with go1.26.4 on darwin/amd64\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "-r",
+        "$LAB/primary",
+        "--password-file",
+        "$LAB/primary.key",
+        "init"
+      ],
+      "code": 0,
+      "stdout": "created restic repository e836523230 at $LAB/primary\n\nPlease note that knowledge of your password is required to access\nthe repository. Losing your password means that your data is\nirrecoverably lost.\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "-r",
+        "$LAB/secondary",
+        "--password-file",
+        "$LAB/secondary.key",
+        "init",
+        "--from-repo",
+        "$LAB/primary",
+        "--from-password-file",
+        "$LAB/primary.key",
+        "--copy-chunker-params"
+      ],
+      "code": 0,
+      "stdout": "created restic repository fc219b2835 at $LAB/secondary\n with chunker parameters copied from secondary repository\n\nPlease note that knowledge of your password is required to access\nthe repository. Losing your password means that your data is\nirrecoverably lost.\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "-r",
+        "$LAB/primary",
+        "--password-file",
+        "$LAB/primary.key",
+        "backup",
+        "--json",
+        "capture"
+      ],
+      "code": 0,
+      "stdout": "{\"message_type\":\"status\",\"percent_done\":1,\"total_files\":1,\"files_done\":1,\"total_bytes\":2097152,\"bytes_done\":2097152}\n{\"message_type\":\"status\",\"percent_done\":1,\"total_files\":1,\"files_done\":1,\"total_bytes\":2097152,\"bytes_done\":2097152}\n{\"message_type\":\"summary\",\"files_new\":1,\"files_changed\":0,\"files_unmodified\":0,\"dirs_new\":1,\"dirs_changed\":0,\"dirs_unmodified\":0,\"data_blobs\":3,\"tree_blobs\":2,\"data_added\":2098214,\"data_added_packed\":2098271,\"total_files_processed\":1,\"total_bytes_processed\":2097152,\"total_duration\":0.868897681,\"backup_start\":\"2026-11-02T16:19:48.972767+01:00\",\"backup_end\":\"2026-11-02T16:19:49.841653+01:00\",\"snapshot_id\":\"89fa7be6723b89f22915bb4fef8db4ed2aa27cdc41f8411602f48fe776e68046\"}\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "-r",
+        "$LAB/primary",
+        "--password-file",
+        "$LAB/primary.key",
+        "snapshots",
+        "--json"
+      ],
+      "code": 0,
+      "stdout": "[{\"time\":\"2026-11-02T16:19:48.972767+01:00\",\"tree\":\"dcbbbfac2104ea1f5e4e111415c36eb4f1b8b448058fe6dae26b512d2b08a0fd\",\"paths\":[\"/private$LAB/capture\"],\"hostname\":\"fkecl2.fritz.box\",\"username\":\"fke\",\"uid\":502,\"gid\":20,\"program_version\":\"restic 0.19.1\",\"summary\":{\"backup_start\":\"2026-11-02T16:19:48.972767+01:00\",\"backup_end\":\"2026-11-02T16:19:49.841653+01:00\",\"files_new\":1,\"files_changed\":0,\"files_unmodified\":0,\"dirs_new\":1,\"dirs_changed\":0,\"dirs_unmodified\":0,\"data_blobs\":3,\"tree_blobs\":2,\"data_added\":2098214,\"data_added_packed\":2098271,\"total_files_processed\":1,\"total_bytes_processed\":2097152},\"id\":\"89fa7be6723b89f22915bb4fef8db4ed2aa27cdc41f8411602f48fe776e68046\",\"short_id\":\"89fa7be6\"}]\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "-r",
+        "$LAB/secondary",
+        "--password-file",
+        "$LAB/secondary.key",
+        "copy",
+        "--from-repo",
+        "$LAB/primary",
+        "--from-password-file",
+        "$LAB/primary.key",
+        "89fa7be6723b89f22915bb4fef8db4ed2aa27cdc41f8411602f48fe776e68046"
+      ],
+      "code": 0,
+      "stdout": "\nsnapshot 89fa7be6 of [/private$LAB/capture] at 2026-11-02 16:19:48.972767 +0100 CET by fke@fkecl2.fritz.box\n  copy started, this may take a while...\n[0:00] 100.00%  2 / 2 packs copied\nsnapshot 078c2551 saved, copied from source snapshot 89fa7be6\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "-r",
+        "$LAB/secondary",
+        "--password-file",
+        "$LAB/secondary.key",
+        "snapshots",
+        "--json"
+      ],
+      "code": 0,
+      "stdout": "[{\"time\":\"2026-11-02T16:19:48.972767+01:00\",\"tree\":\"dcbbbfac2104ea1f5e4e111415c36eb4f1b8b448058fe6dae26b512d2b08a0fd\",\"paths\":[\"/private$LAB/capture\"],\"hostname\":\"fkecl2.fritz.box\",\"username\":\"fke\",\"uid\":502,\"gid\":20,\"original\":\"89fa7be6723b89f22915bb4fef8db4ed2aa27cdc41f8411602f48fe776e68046\",\"program_version\":\"restic 0.19.1\",\"summary\":{\"backup_start\":\"2026-11-02T16:19:48.972767+01:00\",\"backup_end\":\"2026-11-02T16:19:49.841653+01:00\",\"files_new\":1,\"files_changed\":0,\"files_unmodified\":0,\"dirs_new\":1,\"dirs_changed\":0,\"dirs_unmodified\":0,\"data_blobs\":3,\"tree_blobs\":2,\"data_added\":2098214,\"data_added_packed\":2098271,\"total_files_processed\":1,\"total_bytes_processed\":2097152},\"id\":\"078c2551408827c9daa1d92bc9b63f51e8011e3b5752c96515e08e10ff14454b\",\"short_id\":\"078c2551\"}]\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "-r",
+        "$LAB/secondary",
+        "--password-file",
+        "$LAB/secondary.key",
+        "restore",
+        "078c2551408827c9daa1d92bc9b63f51e8011e3b5752c96515e08e10ff14454b",
+        "--target",
+        "restore-offline"
+      ],
+      "code": 0,
+      "stdout": "restoring snapshot 078c2551 of [/private$LAB/capture] at 2026-11-02 16:19:48.972767 +0100 CET by fke@fkecl2.fritz.box to restore-offline\nSummary: Restored 2 files/dirs (2.000 MiB) in 0:00\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "-r",
+        "$LAB/secondary",
+        "--password-file",
+        "$LAB/secondary.key",
+        "check",
+        "--read-data"
+      ],
+      "code": 0,
+      "stdout": "create exclusive lock for repository\nload indexes\ncheck all packs\ncheck snapshots, trees and blobs\n[0:00] 100.00%  1 / 1 snapshots\nread all data\n[0:00] 100.00%  2 / 2 packs\nno errors were found\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "-r",
+        "$LAB/primary",
+        "--password-file",
+        "$LAB/primary.key",
+        "forget",
+        "89fa7be6723b89f22915bb4fef8db4ed2aa27cdc41f8411602f48fe776e68046",
+        "--prune"
+      ],
+      "code": 0,
+      "stdout": "[0:00] 100.00%  1 / 1 files deleted\n1 snapshots have been removed, running prune\nwarning: running prune without a cache, this may be very slow!\nloading all snapshots...\nfinding data that is still in use for 0 snapshots\n[0:00]          0 snapshots\nsearching used packs...\ncollecting packs for deletion and repacking\n[0:00] 100.00%  2 / 2 packs processed\n\nto repack:             0 blobs / 0 B\nthis removes:          0 blobs / 0 B\nto delete:             5 blobs / 2.001 MiB\ntotal prune:           5 blobs / 2.001 MiB\nremaining:             0 blobs / 0 B\nunused size after prune: 0 B ( of remaining size)\n\nrebuilding index\n[0:00] 100.00%  1 / 1 indexes processed\n[0:00] 100.00%  1 / 1 old indexes deleted\nremoving 2 old packs\n[0:00] 100.00%  2 / 2 files deleted\ndone\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "-r",
+        "$LAB/primary",
+        "--password-file",
+        "$LAB/primary.key",
+        "snapshots",
+        "--json"
+      ],
+      "code": 0,
+      "stdout": "[]\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "-r",
+        "$LAB/secondary",
+        "--password-file",
+        "$LAB/secondary.key",
+        "copy",
+        "--from-repo",
+        "$LAB/primary",
+        "--from-password-file",
+        "$LAB/primary.key"
+      ],
+      "code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "-r",
+        "$LAB/secondary",
+        "--password-file",
+        "$LAB/secondary.key",
+        "snapshots",
+        "--json"
+      ],
+      "code": 0,
+      "stdout": "[{\"time\":\"2026-11-02T16:19:48.972767+01:00\",\"tree\":\"dcbbbfac2104ea1f5e4e111415c36eb4f1b8b448058fe6dae26b512d2b08a0fd\",\"paths\":[\"/private$LAB/capture\"],\"hostname\":\"fkecl2.fritz.box\",\"username\":\"fke\",\"uid\":502,\"gid\":20,\"original\":\"89fa7be6723b89f22915bb4fef8db4ed2aa27cdc41f8411602f48fe776e68046\",\"program_version\":\"restic 0.19.1\",\"summary\":{\"backup_start\":\"2026-11-02T16:19:48.972767+01:00\",\"backup_end\":\"2026-11-02T16:19:49.841653+01:00\",\"files_new\":1,\"files_changed\":0,\"files_unmodified\":0,\"dirs_new\":1,\"dirs_changed\":0,\"dirs_unmodified\":0,\"data_blobs\":3,\"tree_blobs\":2,\"data_added\":2098214,\"data_added_packed\":2098271,\"total_files_processed\":1,\"total_bytes_processed\":2097152},\"id\":\"078c2551408827c9daa1d92bc9b63f51e8011e3b5752c96515e08e10ff14454b\",\"short_id\":\"078c2551\"}]\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "-r",
+        "$LAB/secondary",
+        "--password-file",
+        "$LAB/secondary.key",
+        "restore",
+        "078c2551408827c9daa1d92bc9b63f51e8011e3b5752c96515e08e10ff14454b",
+        "--target",
+        "restore-retained"
+      ],
+      "code": 0,
+      "stdout": "restoring snapshot 078c2551 of [/private$LAB/capture] at 2026-11-02 16:19:48.972767 +0100 CET by fke@fkecl2.fritz.box to restore-retained\nSummary: Restored 2 files/dirs (2.000 MiB) in 0:00\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "-r",
+        "$LAB/primary",
+        "--password-file",
+        "$LAB/primary.key",
+        "backup",
+        "--pack-size",
+        "4",
+        "--json",
+        "capture"
+      ],
+      "code": 0,
+      "stdout": "{\"message_type\":\"status\",\"seconds_remaining\":1,\"percent_done\":0.06268883869051933,\"total_files\":1,\"total_bytes\":268435456,\"bytes_done\":16827907,\"current_files\":[\"/capture/data.bin\"]}\n{\"message_type\":\"status\",\"seconds_remaining\":1,\"percent_done\":0.1120891235768795,\"total_files\":1,\"total_bytes\":268435456,\"bytes_done\":30088695,\"current_files\":[\"/capture/data.bin\"]}\n{\"message_type\":\"status\",\"seconds_remaining\":1,\"percent_done\":0.1655053235590458,\"total_files\":1,\"total_bytes\":268435456,\"bytes_done\":44427497,\"current_files\":[\"/capture/data.bin\"]}\n{\"message_type\":\"status\",\"seconds_remaining\":1,\"percent_done\":0.1914629265666008,\"total_files\":1,\"total_bytes\":268435456,\"bytes_done\":51395438,\"current_files\":[\"/capture/data.bin\"]}\n{\"message_type\":\"status\",\"seconds_remaining\":1,\"percent_done\":0.23776505142450333,\"total_files\":1,\"total_bytes\":268435456,\"bytes_done\":63824570,\"current_files\":[\"/capture/data.bin\"]}\n{\"message_type\":\"status\",\"seconds_remaining\":1,\"percent_done\":0.2905273325741291,\"total_files\":1,\"total_bytes\":268435456,\"bytes_done\":77987837,\"current_files\":[\"/capture/data.bin\"]}\n{\"message_type\":\"status\",\"seconds_remaining\":1,\"percent_done\":0.31407134234905243,\"total_files\":1,\"total_bytes\":268435456,\"bytes_done\":84307884,\"current_files\":[\"/capture/data.bin\"]}\n{\"message_type\":\"status\",\"seconds_remaining\":1,\"percent_done\":0.34016725793480873,\"total_files\":1,\"total_bytes\":268435456,\"bytes_done\":91312953,\"current_files\":[\"/capture/data.bin\"]}\n{\"message_type\":\"status\",\"seconds_remaining\":1,\"percent_done\":0.36548536643385887,\"total_files\":1,\"total_bytes\":268435456,\"bytes_done\":98109231,\"current_files\":[\"/capture/data.bin\"]}\n{\"message_type\":\"status\",\"seconds_elapsed\":1,\"seconds_remaining\":1,\"percent_done\":0.41222497820854187,\"total_files\":1,\"total_bytes\":268435456,\"bytes_done\":110655800,\"current_files\":[\"/capture/data.bin\"]}\n{\"message_type\":\"status\",\"seconds_elapsed\":1,\"seconds_remaining\":1,\"percent_done\":0.4327770732343197,\"total_files\":1,\"total_bytes\":268435456,\"bytes_done\":116172711,\"current_files\":[\"/capture/data.bin\"]}\n{\"message_type\":\"status\",\"seconds_elapsed\":1,\"seconds_remaining\":1,\"percent_done\":0.48590002954006195,\"total_files\":1,\"total_bytes\":268435456,\"bytes_done\":130432796,\"current_files\":[\"/capture/data.bin\"]}\n{\"message_type\":\"status\",\"seconds_elapsed\":1,\"seconds_remaining\":1,\"percent_done\":0.5160025022923946,\"total_files\":1,\"total_bytes\":268435456,\"bytes_done\":138513367,\"current_files\":[\"/capture/data.bin\"]}\n{\"message_type\":\"status\",\"seconds_elapsed\":1,\"seconds_remaining\":1,\"percent_done\":0.5646488592028618,\"total_files\":1,\"total_bytes\":268435456,\"bytes_done\":151571774,\"current_files\":[\"/capture/data.bin\"]}\n{\"message_type\":\"status\",\"seconds_elapsed\":1,\"percent_done\":0.6034474074840546,\"total_files\":1,\"total_bytes\":268435456,\"bytes_done\":161986680,\"current_files\":[\"/capture/data.bin\"]}\n{\"message_type\":\"status\",\"seconds_elapsed\":1,\"percent_done\":0.6436450332403183,\"total_files\":1,\"total_bytes\":268435456,\"bytes_done\":172777148,\"current_files\":[\"/capture/data.bin\"]}\n{\"message_type\":\"status\",\"seconds_elapsed\":1,\"percent_done\":0.6470245979726315,\"total_files\":1,\"total_bytes\":268435456,\"bytes_done\":173684343,\"current_files\":[\"/capture/data.bin\"]}\n{\"message_type\":\"status\",\"seconds_elapsed\":1,\"percent_done\":0.6589179523289204,\"total_files\":1,\"total_bytes\":268435456,\"bytes_done\":176876941,\"current_files\":[\"/capture/data.bin\"]}\n{\"message_type\":\"status\",\"seconds_elapsed\":1,\"percent_done\":0.6749629080295563,\"total_files\":1,\"total_bytes\":268435456,\"bytes_done\":181183976,\"current_files\":[\"/capture/data.bin\"]}\n{\"message_type\":\"status\",\"seconds_elapsed\":2,\"percent_done\":0.6969432383775711,\"total_files\":1,\"total_bytes\":268435456,\"bytes_done\":187084276,\"current_files\":[\"/capture/data.bin\"]}\n{\"message_type\":\"status\",\"seconds_elapsed\":2,\"percent_done\":0.7389676757156849,\"total_files\":1,\"total_bytes\":268435456,\"bytes_done\":198365125,\"current_files\":[\"/capture/data.bin\"]}\n{\"message_type\":\"status\",\"seconds_elapsed\":2,\"percent_done\":0.7820685990154743,\"total_files\":1,\"total_bytes\":268435456,\"bytes_done\":209934941,\"current_files\":[\"/capture/data.bin\"]}\n{\"message_type\":\"status\",\"seconds_elapsed\":2,\"percent_done\":0.8312939293682575,\"total_files\":1,\"total_bytes\":268435456,\"bytes_done\":223148765,\"current_files\":[\"/capture/data.bin\"]}\n{\"message_type\":\"status\",\"seconds_elapsed\":2,\"percent_done\":0.8744276240468025,\"total_files\":1,\"total_bytes\":268435456,\"bytes_done\":234727378,\"current_files\":[\"/capture/data.bin\"]}\n{\"message_type\":\"status\",\"seconds_elapsed\":2,\"percent_done\":0.904632531106472,\"total_files\":1,\"total_bytes\":268435456,\"bytes_done\":242835446,\"current_files\":[\"/capture/data.bin\"]}\n{\"message_type\":\"status\",\"seconds_elapsed\":2,\"percent_done\":0.9368134960532188,\"total_files\":1,\"total_bytes\":268435456,\"bytes_done\":251473958,\"current_files\":[\"/capture/data.bin\"]}\n{\"message_type\":\"status\",\"seconds_elapsed\":2,\"percent_done\":0.9684570915997028,\"total_files\":1,\"total_bytes\":268435456,\"bytes_done\":259968221,\"current_files\":[\"/capture/data.bin\"]}\n{\"message_type\":\"status\",\"seconds_elapsed\":2,\"percent_done\":1,\"total_files\":1,\"total_bytes\":268435456,\"bytes_done\":268435456,\"current_files\":[\"/capture/data.bin\"]}\n{\"message_type\":\"status\",\"seconds_elapsed\":2,\"percent_done\":1,\"total_files\":1,\"total_bytes\":268435456,\"bytes_done\":268435456}\n{\"message_type\":\"status\",\"seconds_elapsed\":3,\"percent_done\":1,\"total_files\":1,\"files_done\":1,\"total_bytes\":268435456,\"bytes_done\":268435456}\n{\"message_type\":\"status\",\"seconds_elapsed\":3,\"percent_done\":1,\"total_files\":1,\"files_done\":1,\"total_bytes\":268435456,\"bytes_done\":268435456}\n{\"message_type\":\"summary\",\"files_new\":1,\"files_changed\":0,\"files_unmodified\":0,\"dirs_new\":1,\"dirs_changed\":0,\"dirs_unmodified\":0,\"data_blobs\":186,\"tree_blobs\":2,\"data_added\":268448784,\"data_added_packed\":268472455,\"total_files_processed\":1,\"total_bytes_processed\":268435456,\"total_duration\":3.824609788,\"backup_start\":\"2026-11-02T16:20:30.751486+01:00\",\"backup_end\":\"2026-11-02T16:20:34.576047+01:00\",\"snapshot_id\":\"1b31027f4952fc876b1081d14693ad1c9ec757346d423e3a0b6c950e65abdc3a\"}\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "-r",
+        "$LAB/primary",
+        "--password-file",
+        "$LAB/primary.key",
+        "snapshots",
+        "--json"
+      ],
+      "code": 0,
+      "stdout": "[{\"time\":\"2026-11-02T16:20:30.751486+01:00\",\"tree\":\"19085882dfb7fb9f95c91cc4bd50c612b49c7124bdb7eff2a8fe01fe190b3bcf\",\"paths\":[\"/private$LAB/capture\"],\"hostname\":\"fkecl2.fritz.box\",\"username\":\"fke\",\"uid\":502,\"gid\":20,\"program_version\":\"restic 0.19.1\",\"summary\":{\"backup_start\":\"2026-11-02T16:20:30.751486+01:00\",\"backup_end\":\"2026-11-02T16:20:34.576047+01:00\",\"files_new\":1,\"files_changed\":0,\"files_unmodified\":0,\"dirs_new\":1,\"dirs_changed\":0,\"dirs_unmodified\":0,\"data_blobs\":186,\"tree_blobs\":2,\"data_added\":268448784,\"data_added_packed\":268472455,\"total_files_processed\":1,\"total_bytes_processed\":268435456},\"id\":\"1b31027f4952fc876b1081d14693ad1c9ec757346d423e3a0b6c950e65abdc3a\",\"short_id\":\"1b31027f\"}]\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "-r",
+        "$LAB/secondary",
+        "--password-file",
+        "$LAB/secondary.key",
+        "copy",
+        "--pack-size",
+        "4",
+        "--from-repo",
+        "$LAB/primary",
+        "--from-password-file",
+        "$LAB/primary.key",
+        "1b31027f4952fc876b1081d14693ad1c9ec757346d423e3a0b6c950e65abdc3a"
+      ],
+      "code": 137,
+      "signal": "SIGKILL",
+      "stdout": "\nsnapshot 1b31027f of [/private$LAB/capture] at 2026-11-02 16:20:30.751486 +0100 CET by fke@fkecl2.fritz.box\n  copy started, this may take a while...\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "-r",
+        "$LAB/secondary",
+        "--password-file",
+        "$LAB/secondary.key",
+        "snapshots",
+        "--json"
+      ],
+      "code": 0,
+      "stdout": "[{\"time\":\"2026-11-02T16:19:48.972767+01:00\",\"tree\":\"dcbbbfac2104ea1f5e4e111415c36eb4f1b8b448058fe6dae26b512d2b08a0fd\",\"paths\":[\"/private$LAB/capture\"],\"hostname\":\"fkecl2.fritz.box\",\"username\":\"fke\",\"uid\":502,\"gid\":20,\"original\":\"89fa7be6723b89f22915bb4fef8db4ed2aa27cdc41f8411602f48fe776e68046\",\"program_version\":\"restic 0.19.1\",\"summary\":{\"backup_start\":\"2026-11-02T16:19:48.972767+01:00\",\"backup_end\":\"2026-11-02T16:19:49.841653+01:00\",\"files_new\":1,\"files_changed\":0,\"files_unmodified\":0,\"dirs_new\":1,\"dirs_changed\":0,\"dirs_unmodified\":0,\"data_blobs\":3,\"tree_blobs\":2,\"data_added\":2098214,\"data_added_packed\":2098271,\"total_files_processed\":1,\"total_bytes_processed\":2097152},\"id\":\"078c2551408827c9daa1d92bc9b63f51e8011e3b5752c96515e08e10ff14454b\",\"short_id\":\"078c2551\"}]\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "-r",
+        "$LAB/secondary",
+        "--password-file",
+        "$LAB/secondary.key",
+        "restore",
+        "078c2551408827c9daa1d92bc9b63f51e8011e3b5752c96515e08e10ff14454b",
+        "--target",
+        "restore-after-kill"
+      ],
+      "code": 0,
+      "stdout": "restoring snapshot 078c2551 of [/private$LAB/capture] at 2026-11-02 16:19:48.972767 +0100 CET by fke@fkecl2.fritz.box to restore-after-kill\nSummary: Restored 2 files/dirs (2.000 MiB) in 0:00\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "-r",
+        "$LAB/secondary",
+        "--password-file",
+        "$LAB/secondary.key",
+        "copy",
+        "--from-repo",
+        "$LAB/primary",
+        "--from-password-file",
+        "$LAB/primary.key",
+        "1b31027f4952fc876b1081d14693ad1c9ec757346d423e3a0b6c950e65abdc3a"
+      ],
+      "code": 0,
+      "stdout": "\nsnapshot 1b31027f of [/private$LAB/capture] at 2026-11-02 16:20:30.751486 +0100 CET by fke@fkecl2.fritz.box\n  copy started, this may take a while...\n[0:01] 100.00%  52 / 52 packs copied\nsnapshot 02d0d0c4 saved, copied from source snapshot 1b31027f\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "-r",
+        "$LAB/secondary",
+        "--password-file",
+        "$LAB/secondary.key",
+        "snapshots",
+        "--json"
+      ],
+      "code": 0,
+      "stdout": "[{\"time\":\"2026-11-02T16:19:48.972767+01:00\",\"tree\":\"dcbbbfac2104ea1f5e4e111415c36eb4f1b8b448058fe6dae26b512d2b08a0fd\",\"paths\":[\"/private$LAB/capture\"],\"hostname\":\"fkecl2.fritz.box\",\"username\":\"fke\",\"uid\":502,\"gid\":20,\"original\":\"89fa7be6723b89f22915bb4fef8db4ed2aa27cdc41f8411602f48fe776e68046\",\"program_version\":\"restic 0.19.1\",\"summary\":{\"backup_start\":\"2026-11-02T16:19:48.972767+01:00\",\"backup_end\":\"2026-11-02T16:19:49.841653+01:00\",\"files_new\":1,\"files_changed\":0,\"files_unmodified\":0,\"dirs_new\":1,\"dirs_changed\":0,\"dirs_unmodified\":0,\"data_blobs\":3,\"tree_blobs\":2,\"data_added\":2098214,\"data_added_packed\":2098271,\"total_files_processed\":1,\"total_bytes_processed\":2097152},\"id\":\"078c2551408827c9daa1d92bc9b63f51e8011e3b5752c96515e08e10ff14454b\",\"short_id\":\"078c2551\"},{\"time\":\"2026-11-02T16:20:30.751486+01:00\",\"tree\":\"19085882dfb7fb9f95c91cc4bd50c612b49c7124bdb7eff2a8fe01fe190b3bcf\",\"paths\":[\"/private$LAB/capture\"],\"hostname\":\"fkecl2.fritz.box\",\"username\":\"fke\",\"uid\":502,\"gid\":20,\"original\":\"1b31027f4952fc876b1081d14693ad1c9ec757346d423e3a0b6c950e65abdc3a\",\"program_version\":\"restic 0.19.1\",\"summary\":{\"backup_start\":\"2026-11-02T16:20:30.751486+01:00\",\"backup_end\":\"2026-11-02T16:20:34.576047+01:00\",\"files_new\":1,\"files_changed\":0,\"files_unmodified\":0,\"dirs_new\":1,\"dirs_changed\":0,\"dirs_unmodified\":0,\"data_blobs\":186,\"tree_blobs\":2,\"data_added\":268448784,\"data_added_packed\":268472455,\"total_files_processed\":1,\"total_bytes_processed\":268435456},\"id\":\"02d0d0c492efd53160dc6c6308b0b867a8b3769aaec8e6fb4af43a73b6b4d2ff\",\"short_id\":\"02d0d0c4\"}]\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "-r",
+        "$LAB/secondary",
+        "--password-file",
+        "$LAB/secondary.key",
+        "restore",
+        "02d0d0c492efd53160dc6c6308b0b867a8b3769aaec8e6fb4af43a73b6b4d2ff",
+        "--target",
+        "restore-retry-offline"
+      ],
+      "code": 0,
+      "stdout": "restoring snapshot 02d0d0c4 of [/private$LAB/capture] at 2026-11-02 16:20:30.751486 +0100 CET by fke@fkecl2.fritz.box to restore-retry-offline\nSummary: Restored 2 files/dirs (256.000 MiB) in 0:00\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "-r",
+        "$LAB/secondary",
+        "--password-file",
+        "$LAB/secondary.key",
+        "check",
+        "--read-data"
+      ],
+      "code": 11,
+      "stdout": "create exclusive lock for repository\nrepo already locked, waiting up to 0s for the lock\n",
+      "stderr": "unable to create lock in backend: repository is already locked by PID 11339 on fkecl2.fritz.box by fke (UID 502, GID 20)\nlock was created at 2026-11-02 16:20:37 (8.805599s ago)\nstorage ID 35b5a63d\nthe `unlock` command can be used to remove stale locks\n"
+    },
+    {
+      "args": [
+        "-r",
+        "$LAB/secondary",
+        "--password-file",
+        "$LAB/secondary.key",
+        "unlock"
+      ],
+      "code": 0,
+      "stdout": "successfully removed 1 locks\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "-r",
+        "$LAB/secondary",
+        "--password-file",
+        "$LAB/secondary.key",
+        "check",
+        "--read-data"
+      ],
+      "code": 0,
+      "stdout": "create exclusive lock for repository\nload indexes\ncheck all packs\ncheck snapshots, trees and blobs\n[0:00] 100.00%  2 / 2 snapshots\nread all data\n[0:00] 100.00%  18 / 18 packs\nno errors were found\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "-r",
+        "$LAB/primary",
+        "--password-file",
+        "$LAB/primary.key",
+        "unlock"
+      ],
+      "code": 0,
+      "stdout": "successfully removed 1 locks\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "-r",
+        "$LAB/secondary",
+        "--password-file",
+        "$LAB/secondary.key",
+        "copy",
+        "--verbose",
+        "--from-repo",
+        "$LAB/primary",
+        "--from-password-file",
+        "$LAB/primary.key",
+        "1b31027f4952fc876b1081d14693ad1c9ec757346d423e3a0b6c950e65abdc3a"
+      ],
+      "code": 0,
+      "stdout": "\nsnapshot 1b31027f of [/private$LAB/capture] at 2026-11-02 16:20:30.751486 +0100 CET by fke@fkecl2.fritz.box\nskipping source snapshot 1b31027f, was already copied to snapshot 02d0d0c4\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "-r",
+        "$LAB/secondary",
+        "--password-file",
+        "$LAB/secondary.key",
+        "snapshots",
+        "--json"
+      ],
+      "code": 0,
+      "stdout": "[{\"time\":\"2026-11-02T16:19:48.972767+01:00\",\"tree\":\"dcbbbfac2104ea1f5e4e111415c36eb4f1b8b448058fe6dae26b512d2b08a0fd\",\"paths\":[\"/private$LAB/capture\"],\"hostname\":\"fkecl2.fritz.box\",\"username\":\"fke\",\"uid\":502,\"gid\":20,\"original\":\"89fa7be6723b89f22915bb4fef8db4ed2aa27cdc41f8411602f48fe776e68046\",\"program_version\":\"restic 0.19.1\",\"summary\":{\"backup_start\":\"2026-11-02T16:19:48.972767+01:00\",\"backup_end\":\"2026-11-02T16:19:49.841653+01:00\",\"files_new\":1,\"files_changed\":0,\"files_unmodified\":0,\"dirs_new\":1,\"dirs_changed\":0,\"dirs_unmodified\":0,\"data_blobs\":3,\"tree_blobs\":2,\"data_added\":2098214,\"data_added_packed\":2098271,\"total_files_processed\":1,\"total_bytes_processed\":2097152},\"id\":\"078c2551408827c9daa1d92bc9b63f51e8011e3b5752c96515e08e10ff14454b\",\"short_id\":\"078c2551\"},{\"time\":\"2026-11-02T16:20:30.751486+01:00\",\"tree\":\"19085882dfb7fb9f95c91cc4bd50c612b49c7124bdb7eff2a8fe01fe190b3bcf\",\"paths\":[\"/private$LAB/capture\"],\"hostname\":\"fkecl2.fritz.box\",\"username\":\"fke\",\"uid\":502,\"gid\":20,\"original\":\"1b31027f4952fc876b1081d14693ad1c9ec757346d423e3a0b6c950e65abdc3a\",\"program_version\":\"restic 0.19.1\",\"summary\":{\"backup_start\":\"2026-11-02T16:20:30.751486+01:00\",\"backup_end\":\"2026-11-02T16:20:34.576047+01:00\",\"files_new\":1,\"files_changed\":0,\"files_unmodified\":0,\"dirs_new\":1,\"dirs_changed\":0,\"dirs_unmodified\":0,\"data_blobs\":186,\"tree_blobs\":2,\"data_added\":268448784,\"data_added_packed\":268472455,\"total_files_processed\":1,\"total_bytes_processed\":268435456},\"id\":\"02d0d0c492efd53160dc6c6308b0b867a8b3769aaec8e6fb4af43a73b6b4d2ff\",\"short_id\":\"02d0d0c4\"}]\n",
+      "stderr": ""
+    }
+  ]
+}
