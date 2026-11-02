@@ -40,7 +40,7 @@ A subsequent copy of a 256 MiB synthetic payload was killed with `SIGKILL` after
 
 The killed process left stale locks. Copy retry and restore succeeded without manual unlock, but `check --read-data` exited with lock error 11. After confirming the process had exited and its PID no longer existed, removing stale locks allowed the full secondary data check to pass. The source stale lock was also removed.
 
-The proof selects the native replication mechanism, not an automated replication deployment. The endpoint package below adds HTTPS access protection and native-lock-compatible recovery access. Retention policy, replication scheduling and direct application recovery from the secondary with the primary provider unavailable remain integration work, including independent recovery inputs and protection of retained history. These checks do not make the backend application-aware.
+The copy proof selects the native replication mechanism, not an automated replication deployment. The endpoint package below adds HTTPS access protection and native-lock-compatible recovery access. Retention policy and replication scheduling remain integration work. Direct native Keycloak recovery from a secondary repository with the primary removed is verified below; the backend does not acquire application-specific responsibilities.
 
 ## Endpoint package
 
@@ -135,11 +135,17 @@ Record repository identity and full snapshot IDs with `restic cat config` and `r
 
 ### Verification status
 
-The [2 November endpoint evidence](evidence/2026-11-02-endpoint.json) records Helm lint/rendering and live native nginx 1.28.0, rest-server 0.14.0 and Restic 0.19.1 on Darwin. The rendered authorization policy passed content-write denial, lock creation/removal, cross-repository credential isolation, native lock conflicts in both directions, byte-verified restore and process replacement over unchanged repository directories. The rendered startup check refused missing state without initialization; the rendered maintenance commands checked and deleted an explicitly selected disposable snapshot.
+The [2 November Kubernetes qualification](evidence/2026-11-02-kubernetes.json) passed on a disposable Hetzner CPX32 running K3s `v1.36.5+k3s1`. It exercised authenticated HTTPS, content-write denial, native lock access, cross-repository credential isolation, maintenance exclusion in both directions, full data checks, selected-snapshot pruning and byte-correct restores. Deleting and recreating the Deployment through Helm preserved the PVC UID, repository identity and snapshot. Missing repository state failed visibly without initialization; restoring the original values resumed service with the existing history intact. The earlier [native-process proof](evidence/2026-11-02-endpoint.json) remains available.
 
-Kubernetes deployment, PVC attachment and Deployment replacement remain unverified. Both Colima and direct Lima startup were blocked by a denied user-network socket bind; the native proof substituted only local paths, ports and certificate inputs, not the authorization policy. Complete the Kubernetes procedure above on an available disposable cluster before relying on this package there.
+Run the maintained proof only against an explicitly authorized disposable Hetzner cluster with a default StorageClass and registry access:
 
-The existing Keycloak consumer source now uses native locks, but its manifest still binds the original repository ID. It therefore rejects recovery from `restic copy` into an independently initialized repository. That compatibility constraint is recorded in the [Keycloak design](../bartl-keycloak/DESIGN.md#recovery-and-exclusion); it must be resolved before claiming direct secondary-provider recovery for that consumer.
+```sh
+BARTL_RESTIC_LAB=hetzner KUBECONFIG=/private/lab-kubeconfig node tests/kubernetes.mjs
+```
+
+The runner creates its own namespace, retains evidence locally and deletes that namespace on success. Failures retain diagnostics and print the exact cleanup command. It never provisions infrastructure or starts local containers. Use Hetzner for these tests; Colima or local Docker requires explicit permission. The recorded VM, IPv4 and firewall were deleted and their absence verified; the estimated rounded-up infrastructure cost was €0.0577 against the authorized €5 budget.
+
+The [Keycloak secondary-recovery proof](../bartl-keycloak/evidence/2026-11-02-secondary-recovery.json) reproduced the old repository-ID rejection and verified the fixed native worker against a separately initialized repository after removal of the primary endpoint, PVC, credentials, source Keycloak and source database. The restored application accepted the original user's password and preserved user/realm IDs; foreign ownership, incompatible images and corrupted archive data were rejected before target mutation. This exercised candidate native workers and real Keycloak, not a new published Keycloak image or its complete controller lifecycle. Both repositories were in the same disposable cluster; no actual cross-provider outage was exercised.
 
 ## Sources
 

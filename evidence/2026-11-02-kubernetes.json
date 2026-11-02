@@ -1,0 +1,2678 @@
+{
+  "schema": 1,
+  "started": "2026-11-02T16:31:31.730Z",
+  "namespace": "restic-proof-mvzh7pg1-c9e27b",
+  "host": "proof-restic.restic-proof-mvzh7pg1-c9e27b.svc",
+  "images": {
+    "restic": "docker.io/restic/restic:0.19.1",
+    "curl": "docker.io/curlimages/curl:8.12.1",
+    "endpoint": [
+      {
+        "name": "writer",
+        "image": "docker.io/restic/rest-server@sha256:d2aff06f47eb38637dff580c3e6bce4af98f386c396a25d32eb6727ec96214a5"
+      },
+      {
+        "name": "repository",
+        "image": "docker.io/restic/rest-server@sha256:d2aff06f47eb38637dff580c3e6bce4af98f386c396a25d32eb6727ec96214a5"
+      },
+      {
+        "name": "https",
+        "image": "docker.io/library/nginx:1.28.0"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": [
+        "kubectl",
+        "version",
+        "--client=true",
+        "-o",
+        "json"
+      ],
+      "exit": 0,
+      "durationMs": 59,
+      "stdout": "{\n  \"clientVersion\": {\n    \"major\": \"1\",\n    \"minor\": \"37\",\n    \"gitVersion\": \"v1.37.1\",\n    \"gitCommit\": \"f78e722310e50bcaca9276be22276d9e91d91308\",\n    \"gitTreeState\": \"clean\",\n    \"buildDate\": \"2026-09-23T17:06:22Z\",\n    \"goVersion\": \"go1.26.9\",\n    \"compiler\": \"gc\",\n    \"platform\": \"darwin/amd64\"\n  },\n  \"kustomizeVersion\": \"v5.8.1\"\n}\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "helm",
+        "version",
+        "--short"
+      ],
+      "exit": 0,
+      "durationMs": 59,
+      "stdout": "v4.3.0+gbec5b06\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "openssl",
+        "version"
+      ],
+      "exit": 0,
+      "durationMs": 9,
+      "stdout": "OpenSSL 3.6.3 9 Jun 2026 (Library: OpenSSL 3.6.3 9 Jun 2026)\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "create",
+        "namespace",
+        "restic-proof-mvzh7pg1-c9e27b"
+      ],
+      "exit": 0,
+      "durationMs": 121,
+      "stdout": "namespace/restic-proof-mvzh7pg1-c9e27b created\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "openssl",
+        "req",
+        "-x509",
+        "-newkey",
+        "rsa:2048",
+        "-nodes",
+        "-days",
+        "2",
+        "-subj",
+        "/CN=Disposable Restic Proof CA",
+        "-keyout",
+        "/var/folders/tq/dpt94tts3ss61gw899q6v0_80000gp/T/bartl-hetzner-cKXtkt/evidence/restic-proof-mvzh7pg1-c9e27b/private/ca.key",
+        "-out",
+        "/var/folders/tq/dpt94tts3ss61gw899q6v0_80000gp/T/bartl-hetzner-cKXtkt/evidence/restic-proof-mvzh7pg1-c9e27b/private/ca.crt"
+      ],
+      "exit": 0,
+      "durationMs": 115,
+      "stdout": "",
+      "stderr": "....+....+..+.+.....+.......+......+............+...+.....+.+++++++++++++++++++++++++++++++++++++++*...+...+.+.....+....+.....+....+++++++++++++++++++++++++++++++++++++++*.....+......+.+............+........+...+............+...........................+.............+...............+..+...+...+.........+..........+...........+.......+.................+.+......+......+..+......+......+.+........+..........+.....+....+...........+.......+...+..+..........+..+..........+..+...................+.....+.+...+..+.........+.+......+..+...+....+...+...+.....+..........+........+....+..+...................+...............+.....+....+..+..................+.+......+...+..+...+...+.........+....+..+.........+...+...+....+.....+..................+......+.+.....+.+...+.....+..........+............+..+..........+..+.+...............+..+...+....+........+.......+...+......+..+....+........+......+......+.+.........+.....+...+.............+...+..+............+.+.........+...........+.+...+........+............+.......+......+...+...........+.+.........+.....+..................+..................+............+.......+.........+.....+.+......+.....+..................+....+...+..............+.+.........+...+...........+.+......+...............+.........+........+...+.......+..+......+...+......+.....................+.............+..+....+......+...+..+...+.+........+.+...........+.+..+.+.........+..+...+.......+......+............+...+..+..........+......+..+....+......+.....+...+.+...+............+......+..+...+....+.....+.+........+...............+......+...+................+......+...+.....+.+.....+..........+...............+.....+.++++++\n..+.+...+.....+..........+..............+...+....+........+...+...+.+.........+......+.........+..+...+............+++++++++++++++++++++++++++++++++++++++*....+...+..+...+...+......+.............+...+..+.......+...+++++++++++++++++++++++++++++++++++++++*............+...++++++\n-----\n"
+    },
+    {
+      "command": [
+        "openssl",
+        "req",
+        "-newkey",
+        "rsa:2048",
+        "-nodes",
+        "-subj",
+        "/CN=proof-restic.restic-proof-mvzh7pg1-c9e27b.svc",
+        "-keyout",
+        "/var/folders/tq/dpt94tts3ss61gw899q6v0_80000gp/T/bartl-hetzner-cKXtkt/evidence/restic-proof-mvzh7pg1-c9e27b/private/tls.key",
+        "-out",
+        "/var/folders/tq/dpt94tts3ss61gw899q6v0_80000gp/T/bartl-hetzner-cKXtkt/evidence/restic-proof-mvzh7pg1-c9e27b/private/tls.csr"
+      ],
+      "exit": 0,
+      "durationMs": 58,
+      "stdout": "",
+      "stderr": "..+++++++++++++++++++++++++++++++++++++++*.+++++++++++++++++++++++++++++++++++++++*..+........+.........+...+....+......+..+.............+.....+...............+.......+.....+......+.........+.+................................+...+.........+..........+...+...............+.................+.++++++\n.+............+....+..+++++++++++++++++++++++++++++++++++++++*..+.+.........+........+...+..........+..+.+..+............+................+..+....+.....+......+....+...+...+...............+..+............+...+...+..........+...+++++++++++++++++++++++++++++++++++++++*..+...+....+..+......+.......+........+...+......+.+...+.........+..+.....................+.........+...+.+.....+.+........+......+......+.+....................+...+......+......+...................+..............+.+......+..+......+.......+.....+....+..............+......+.........+.......+..+..........+.....+.............+.........+...+............+.....+....+.....+.......+.........+.....+.+........+.......+..+.+.........+.....+...+.......+...+........+.+...++++++\n-----\n"
+    },
+    {
+      "command": [
+        "openssl",
+        "x509",
+        "-req",
+        "-in",
+        "/var/folders/tq/dpt94tts3ss61gw899q6v0_80000gp/T/bartl-hetzner-cKXtkt/evidence/restic-proof-mvzh7pg1-c9e27b/private/tls.csr",
+        "-CA",
+        "/var/folders/tq/dpt94tts3ss61gw899q6v0_80000gp/T/bartl-hetzner-cKXtkt/evidence/restic-proof-mvzh7pg1-c9e27b/private/ca.crt",
+        "-CAkey",
+        "/var/folders/tq/dpt94tts3ss61gw899q6v0_80000gp/T/bartl-hetzner-cKXtkt/evidence/restic-proof-mvzh7pg1-c9e27b/private/ca.key",
+        "-CAcreateserial",
+        "-days",
+        "2",
+        "-extfile",
+        "/var/folders/tq/dpt94tts3ss61gw899q6v0_80000gp/T/bartl-hetzner-cKXtkt/evidence/restic-proof-mvzh7pg1-c9e27b/private/tls.ext",
+        "-out",
+        "/var/folders/tq/dpt94tts3ss61gw899q6v0_80000gp/T/bartl-hetzner-cKXtkt/evidence/restic-proof-mvzh7pg1-c9e27b/private/tls.crt"
+      ],
+      "exit": 0,
+      "durationMs": 27,
+      "stdout": "",
+      "stderr": "Certificate request self-signature ok\nsubject=CN=proof-restic.restic-proof-mvzh7pg1-c9e27b.svc\n"
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "logs",
+        "seed"
+      ],
+      "exit": 0,
+      "durationMs": 188,
+      "stdout": "created restic repository cc9d848299 at /data/alpha\n\nPlease note that knowledge of your password is required to access\nthe repository. Losing your password means that your data is\nirrecoverably lost.\ncreated restic repository ab74e3c2b7 at /data/beta\n\nPlease note that knowledge of your password is required to access\nthe repository. Losing your password means that your data is\nirrecoverably lost.\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "delete",
+        "pod",
+        "seed",
+        "--wait=true"
+      ],
+      "exit": 0,
+      "durationMs": 185,
+      "stdout": "pod \"seed\" deleted from restic-proof-mvzh7pg1-c9e27b namespace\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "get",
+        "pvc",
+        "repositories",
+        "-o",
+        "json"
+      ],
+      "exit": 0,
+      "durationMs": 177,
+      "stdout": "{\n    \"apiVersion\": \"v1\",\n    \"kind\": \"PersistentVolumeClaim\",\n    \"metadata\": {\n        \"annotations\": {\n            \"kubectl.kubernetes.io/last-applied-configuration\": \"{\\\"apiVersion\\\":\\\"v1\\\",\\\"kind\\\":\\\"PersistentVolumeClaim\\\",\\\"metadata\\\":{\\\"annotations\\\":{},\\\"name\\\":\\\"repositories\\\",\\\"namespace\\\":\\\"restic-proof-mvzh7pg1-c9e27b\\\"},\\\"spec\\\":{\\\"accessModes\\\":[\\\"ReadWriteOnce\\\"],\\\"resources\\\":{\\\"requests\\\":{\\\"storage\\\":\\\"2Gi\\\"}}}}\\n\",\n            \"pv.kubernetes.io/bind-completed\": \"yes\",\n            \"pv.kubernetes.io/bound-by-controller\": \"yes\",\n            \"volume.beta.kubernetes.io/storage-provisioner\": \"rancher.io/local-path\",\n            \"volume.kubernetes.io/selected-node\": \"bartl-restic-20261102-01a4b7\",\n            \"volume.kubernetes.io/storage-provisioner\": \"rancher.io/local-path\"\n        },\n        \"creationTimestamp\": \"2026-11-02T16:31:35Z\",\n        \"finalizers\": [\n            \"kubernetes.io/pvc-protection\"\n        ],\n        \"name\": \"repositories\",\n        \"namespace\": \"restic-proof-mvzh7pg1-c9e27b\",\n        \"resourceVersion\": \"2313\",\n        \"uid\": \"e58021a4-18e8-4773-a867-a159125b0698\"\n    },\n    \"spec\": {\n        \"accessModes\": [\n            \"ReadWriteOnce\"\n        ],\n        \"resources\": {\n            \"requests\": {\n                \"storage\": \"2Gi\"\n            }\n        },\n        \"storageClassName\": \"local-path\",\n        \"volumeMode\": \"Filesystem\",\n        \"volumeName\": \"pvc-e58021a4-18e8-4773-a867-a159125b0698\"\n    },\n    \"status\": {\n        \"accessModes\": [\n            \"ReadWriteOnce\"\n        ],\n        \"capacity\": {\n            \"storage\": \"2Gi\"\n        },\n        \"phase\": \"Bound\"\n    }\n}\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "helm",
+        "template",
+        "proof",
+        "/Users/fke/repos/bartlapp/bartl-restic/chart",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "-f",
+        "/var/folders/tq/dpt94tts3ss61gw899q6v0_80000gp/T/bartl-hetzner-cKXtkt/evidence/restic-proof-mvzh7pg1-c9e27b/values.json"
+      ],
+      "exit": 0,
+      "durationMs": 81,
+      "stdout": "---\n# Source: bartl-restic/templates/service.yaml\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: proof-restic\nspec:\n  podSelector:\n    matchLabels:\n      app.kubernetes.io/name: proof-restic\n  policyTypes: [Ingress]\n  ingress:\n    - ports:\n        - protocol: TCP\n          port: 8443\n\n---\n# Source: bartl-restic/templates/configmap.yaml\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: proof-restic\ndata:\n  nginx.conf: |\n    pid /tmp/nginx.pid;\n    events {}\n    http {\n      access_log off;\n      server_tokens off;\n      client_body_temp_path /tmp/client-body;\n      proxy_temp_path /tmp/proxy;\n      map $remote_user $repository_backend {\n        default http://127.0.0.1:8003;\n        reader http://127.0.0.1:8002;\n        writer http://127.0.0.1:8000;\n        admin http://127.0.0.1:8001;\n      }\n      server {\n        listen 8443 ssl;\n        ssl_protocols TLSv1.2 TLSv1.3;\n        ssl_certificate /tls/tls.crt;\n        ssl_certificate_key /tls/tls.key;\n        client_max_body_size 0;\n        location / { return 404; }\n        location /alpha/ {\n          auth_basic \"Restic alpha\";\n          auth_basic_user_file /auth/alpha/htpasswd;\n          proxy_request_buffering off;\n          proxy_read_timeout 600s;\n          proxy_pass $repository_backend;\n        }\n        location /beta/ {\n          auth_basic \"Restic beta\";\n          auth_basic_user_file /auth/beta/htpasswd;\n          proxy_request_buffering off;\n          proxy_read_timeout 600s;\n          proxy_pass $repository_backend;\n        }\n      }\n      # This listener is reachable only inside the Pod. Data remains read-only\n      # for readers, but Restic may create/remove its native lock objects.\n      server {\n        listen 127.0.0.1:8002;\n        client_max_body_size 0;\n        location ~ \"^/alpha/locks/[a-f0-9]{64}$\" {\n          limit_except GET POST DELETE { deny all; }\n          proxy_request_buffering off;\n          proxy_read_timeout 600s;\n          proxy_pass http://127.0.0.1:8001;\n        }\n        location ~ \"^/beta/locks/[a-f0-9]{64}$\" {\n          limit_except GET POST DELETE { deny all; }\n          proxy_request_buffering off;\n          proxy_read_timeout 600s;\n          proxy_pass http://127.0.0.1:8001;\n        }\n        location / {\n          limit_except GET { deny all; }\n          proxy_read_timeout 600s;\n          proxy_pass http://127.0.0.1:8001;\n        }\n      }\n      server {\n        listen 127.0.0.1:8003;\n        location / { return 403; }\n      }\n    }\n\n---\n# Source: bartl-restic/templates/service.yaml\napiVersion: v1\nkind: Service\nmetadata:\n  name: proof-restic\nspec:\n  selector:\n    app.kubernetes.io/name: proof-restic\n  ports:\n    - name: https\n      port: 443\n      targetPort: https\n\n---\n# Source: bartl-restic/templates/deployment.yaml\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: proof-restic\nspec:\n  replicas: 1\n  strategy:\n    type: Recreate\n  selector:\n    matchLabels:\n      app.kubernetes.io/name: proof-restic\n  template:\n    metadata:\n      labels:\n        app.kubernetes.io/name: proof-restic\n      annotations:\n        checksum/config: a3607093881276e16d8a9676bb9596756b7e6786738e8802f79c31dfac0ba5f9\n    spec:\n      automountServiceAccountToken: false\n      initContainers:\n        - name: require-initialized-repositories\n          image: docker.io/library/nginx:1.28.0\n          command: [/bin/sh, -ec]\n          args:\n            - |\n              test -s /data/alpha/config || { echo 'Repository alpha is missing its config; initialize it explicitly before deployment' >&2; exit 1; }\n              for directory in data index keys locks snapshots; do\n                test -d /data/alpha/\"$directory\" || { echo \"Repository alpha is missing $directory\" >&2; exit 1; }\n              done\n              test -s /data/beta/config || { echo 'Repository beta is missing its config; initialize it explicitly before deployment' >&2; exit 1; }\n              for directory in data index keys locks snapshots; do\n                test -d /data/beta/\"$directory\" || { echo \"Repository beta is missing $directory\" >&2; exit 1; }\n              done\n          volumeMounts:\n            - name: data\n              mountPath: /data\n              readOnly: true\n      containers:\n        - name: writer\n          image: docker.io/restic/rest-server@sha256:d2aff06f47eb38637dff580c3e6bce4af98f386c396a25d32eb6727ec96214a5\n          command: [rest-server]\n          args: [--path, /data, --listen, '127.0.0.1:8000', --no-auth, --append-only]\n          volumeMounts:\n            - name: data\n              mountPath: /data\n        - name: repository\n          image: docker.io/restic/rest-server@sha256:d2aff06f47eb38637dff580c3e6bce4af98f386c396a25d32eb6727ec96214a5\n          command: [rest-server]\n          args: [--path, /data, --listen, '127.0.0.1:8001', --no-auth]\n          volumeMounts:\n            - name: data\n              mountPath: /data\n        - name: https\n          image: docker.io/library/nginx:1.28.0\n          ports:\n            - name: https\n              containerPort: 8443\n          readinessProbe:\n            tcpSocket:\n              port: https\n          volumeMounts:\n            - name: nginx\n              mountPath: /etc/nginx/nginx.conf\n              subPath: nginx.conf\n              readOnly: true\n            - name: tls\n              mountPath: /tls\n              readOnly: true\n            - name: auth-alpha\n              mountPath: /auth/alpha\n              readOnly: true\n            - name: auth-beta\n              mountPath: /auth/beta\n              readOnly: true\n      volumes:\n        - name: data\n          persistentVolumeClaim:\n            claimName: \"repositories\"\n        - name: nginx\n          configMap:\n            name: proof-restic\n        - name: tls\n          secret:\n            secretName: \"repository-tls\"\n        - name: auth-alpha\n          secret:\n            secretName: \"alpha-auth\"\n            items:\n              - key: htpasswd\n                path: htpasswd\n        - name: auth-beta\n          secret:\n            secretName: \"beta-auth\"\n            items:\n              - key: htpasswd\n                path: htpasswd\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "helm",
+        "upgrade",
+        "--install",
+        "proof",
+        "/Users/fke/repos/bartlapp/bartl-restic/chart",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "-f",
+        "/var/folders/tq/dpt94tts3ss61gw899q6v0_80000gp/T/bartl-hetzner-cKXtkt/evidence/restic-proof-mvzh7pg1-c9e27b/values.json",
+        "--wait",
+        "--timeout",
+        "5m"
+      ],
+      "exit": 0,
+      "durationMs": 3296,
+      "stdout": "Release \"proof\" does not exist. Installing it now.\nNAME: proof\nLAST DEPLOYED: Mon Nov  2 17:31:48 2026\nNAMESPACE: restic-proof-mvzh7pg1-c9e27b\nSTATUS: deployed\nREVISION: 1\nDESCRIPTION: Install complete\nTEST SUITE: None\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "get",
+        "deployment",
+        "proof-restic",
+        "-o",
+        "json"
+      ],
+      "exit": 0,
+      "durationMs": 169,
+      "stdout": "{\n    \"apiVersion\": \"apps/v1\",\n    \"kind\": \"Deployment\",\n    \"metadata\": {\n        \"annotations\": {\n            \"deployment.kubernetes.io/revision\": \"1\",\n            \"meta.helm.sh/release-name\": \"proof\",\n            \"meta.helm.sh/release-namespace\": \"restic-proof-mvzh7pg1-c9e27b\"\n        },\n        \"creationTimestamp\": \"2026-11-02T16:31:49Z\",\n        \"generation\": 1,\n        \"labels\": {\n            \"app.kubernetes.io/managed-by\": \"Helm\"\n        },\n        \"name\": \"proof-restic\",\n        \"namespace\": \"restic-proof-mvzh7pg1-c9e27b\",\n        \"resourceVersion\": \"2378\",\n        \"uid\": \"8326f9ea-7b05-461e-ba00-8a62a218feaa\"\n    },\n    \"spec\": {\n        \"progressDeadlineSeconds\": 600,\n        \"replicas\": 1,\n        \"revisionHistoryLimit\": 10,\n        \"selector\": {\n            \"matchLabels\": {\n                \"app.kubernetes.io/name\": \"proof-restic\"\n            }\n        },\n        \"strategy\": {\n            \"type\": \"Recreate\"\n        },\n        \"template\": {\n            \"metadata\": {\n                \"annotations\": {\n                    \"checksum/config\": \"a3607093881276e16d8a9676bb9596756b7e6786738e8802f79c31dfac0ba5f9\"\n                },\n                \"labels\": {\n                    \"app.kubernetes.io/name\": \"proof-restic\"\n                }\n            },\n            \"spec\": {\n                \"automountServiceAccountToken\": false,\n                \"containers\": [\n                    {\n                        \"args\": [\n                            \"--path\",\n                            \"/data\",\n                            \"--listen\",\n                            \"127.0.0.1:8000\",\n                            \"--no-auth\",\n                            \"--append-only\"\n                        ],\n                        \"command\": [\n                            \"rest-server\"\n                        ],\n                        \"image\": \"docker.io/restic/rest-server@sha256:d2aff06f47eb38637dff580c3e6bce4af98f386c396a25d32eb6727ec96214a5\",\n                        \"imagePullPolicy\": \"IfNotPresent\",\n                        \"name\": \"writer\",\n                        \"resources\": {},\n                        \"terminationMessagePath\": \"/dev/termination-log\",\n                        \"terminationMessagePolicy\": \"File\",\n                        \"volumeMounts\": [\n                            {\n                                \"mountPath\": \"/data\",\n                                \"name\": \"data\"\n                            }\n                        ]\n                    },\n                    {\n                        \"args\": [\n                            \"--path\",\n                            \"/data\",\n                            \"--listen\",\n                            \"127.0.0.1:8001\",\n                            \"--no-auth\"\n                        ],\n                        \"command\": [\n                            \"rest-server\"\n                        ],\n                        \"image\": \"docker.io/restic/rest-server@sha256:d2aff06f47eb38637dff580c3e6bce4af98f386c396a25d32eb6727ec96214a5\",\n                        \"imagePullPolicy\": \"IfNotPresent\",\n                        \"name\": \"repository\",\n                        \"resources\": {},\n                        \"terminationMessagePath\": \"/dev/termination-log\",\n                        \"terminationMessagePolicy\": \"File\",\n                        \"volumeMounts\": [\n                            {\n                                \"mountPath\": \"/data\",\n                                \"name\": \"data\"\n                            }\n                        ]\n                    },\n                    {\n                        \"image\": \"docker.io/library/nginx:1.28.0\",\n                        \"imagePullPolicy\": \"IfNotPresent\",\n                        \"name\": \"https\",\n                        \"ports\": [\n                            {\n                                \"containerPort\": 8443,\n                                \"name\": \"https\",\n                                \"protocol\": \"TCP\"\n                            }\n                        ],\n                        \"readinessProbe\": {\n                            \"failureThreshold\": 3,\n                            \"periodSeconds\": 10,\n                            \"successThreshold\": 1,\n                            \"tcpSocket\": {\n                                \"port\": \"https\"\n                            },\n                            \"timeoutSeconds\": 1\n                        },\n                        \"resources\": {},\n                        \"terminationMessagePath\": \"/dev/termination-log\",\n                        \"terminationMessagePolicy\": \"File\",\n                        \"volumeMounts\": [\n                            {\n                                \"mountPath\": \"/etc/nginx/nginx.conf\",\n                                \"name\": \"nginx\",\n                                \"readOnly\": true,\n                                \"subPath\": \"nginx.conf\"\n                            },\n                            {\n                                \"mountPath\": \"/tls\",\n                                \"name\": \"tls\",\n                                \"readOnly\": true\n                            },\n                            {\n                                \"mountPath\": \"/auth/alpha\",\n                                \"name\": \"auth-alpha\",\n                                \"readOnly\": true\n                            },\n                            {\n                                \"mountPath\": \"/auth/beta\",\n                                \"name\": \"auth-beta\",\n                                \"readOnly\": true\n                            }\n                        ]\n                    }\n                ],\n                \"dnsPolicy\": \"ClusterFirst\",\n                \"initContainers\": [\n                    {\n                        \"args\": [\n                            \"test -s /data/alpha/config || { echo 'Repository alpha is missing its config; initialize it explicitly before deployment' \\u003e\\u00262; exit 1; }\\nfor directory in data index keys locks snapshots; do\\n  test -d /data/alpha/\\\"$directory\\\" || { echo \\\"Repository alpha is missing $directory\\\" \\u003e\\u00262; exit 1; }\\ndone\\ntest -s /data/beta/config || { echo 'Repository beta is missing its config; initialize it explicitly before deployment' \\u003e\\u00262; exit 1; }\\nfor directory in data index keys locks snapshots; do\\n  test -d /data/beta/\\\"$directory\\\" || { echo \\\"Repository beta is missing $directory\\\" \\u003e\\u00262; exit 1; }\\ndone\\n\"\n                        ],\n                        \"command\": [\n                            \"/bin/sh\",\n                            \"-ec\"\n                        ],\n                        \"image\": \"docker.io/library/nginx:1.28.0\",\n                        \"imagePullPolicy\": \"IfNotPresent\",\n                        \"name\": \"require-initialized-repositories\",\n                        \"resources\": {},\n                        \"terminationMessagePath\": \"/dev/termination-log\",\n                        \"terminationMessagePolicy\": \"File\",\n                        \"volumeMounts\": [\n                            {\n                                \"mountPath\": \"/data\",\n                                \"name\": \"data\",\n                                \"readOnly\": true\n                            }\n                        ]\n                    }\n                ],\n                \"restartPolicy\": \"Always\",\n                \"schedulerName\": \"default-scheduler\",\n                \"securityContext\": {},\n                \"terminationGracePeriodSeconds\": 30,\n                \"volumes\": [\n                    {\n                        \"name\": \"data\",\n                        \"persistentVolumeClaim\": {\n                            \"claimName\": \"repositories\"\n                        }\n                    },\n                    {\n                        \"configMap\": {\n                            \"defaultMode\": 420,\n                            \"name\": \"proof-restic\"\n                        },\n                        \"name\": \"nginx\"\n                    },\n                    {\n                        \"name\": \"tls\",\n                        \"secret\": {\n                            \"defaultMode\": 420,\n                            \"secretName\": \"repository-tls\"\n                        }\n                    },\n                    {\n                        \"name\": \"auth-alpha\",\n                        \"secret\": {\n                            \"defaultMode\": 420,\n                            \"items\": [\n                                {\n                                    \"key\": \"htpasswd\",\n                                    \"path\": \"htpasswd\"\n                                }\n                            ],\n                            \"secretName\": \"alpha-auth\"\n                        }\n                    },\n                    {\n                        \"name\": \"auth-beta\",\n                        \"secret\": {\n                            \"defaultMode\": 420,\n                            \"items\": [\n                                {\n                                    \"key\": \"htpasswd\",\n                                    \"path\": \"htpasswd\"\n                                }\n                            ],\n                            \"secretName\": \"beta-auth\"\n                        }\n                    }\n                ]\n            }\n        }\n    },\n    \"status\": {\n        \"availableReplicas\": 1,\n        \"conditions\": [\n            {\n                \"lastTransitionTime\": \"2026-11-02T16:31:51Z\",\n                \"lastUpdateTime\": \"2026-11-02T16:31:51Z\",\n                \"message\": \"Deployment has minimum availability.\",\n                \"reason\": \"MinimumReplicasAvailable\",\n                \"status\": \"True\",\n                \"type\": \"Available\"\n            },\n            {\n                \"lastTransitionTime\": \"2026-11-02T16:31:49Z\",\n                \"lastUpdateTime\": \"2026-11-02T16:31:51Z\",\n                \"message\": \"ReplicaSet \\\"proof-restic-7f7ff55447\\\" has successfully progressed.\",\n                \"reason\": \"NewReplicaSetAvailable\",\n                \"status\": \"True\",\n                \"type\": \"Progressing\"\n            }\n        ],\n        \"observedGeneration\": 1,\n        \"readyReplicas\": 1,\n        \"replicas\": 1,\n        \"terminatingReplicas\": 0,\n        \"updatedReplicas\": 1\n    }\n}\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "wait",
+        "--for=condition=Ready",
+        "pod/client",
+        "--timeout=5m"
+      ],
+      "exit": 0,
+      "durationMs": 609,
+      "stdout": "pod/client condition met\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --fail --connect-timeout 2 --max-time 5 --head --cacert /credentials/ca.crt --netrc-file /credentials/alpha-reader.netrc -o /dev/null -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/config'"
+      ],
+      "exit": 0,
+      "durationMs": 266,
+      "stdout": "200",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "restic",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "export RESTIC_REPOSITORY='rest:https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/' RESTIC_PASSWORD_FILE=/credentials/password RESTIC_REST_USERNAME=reader; export RESTIC_REST_PASSWORD=\"$(cat /credentials/alpha-reader)\"; restic --cacert /credentials/ca.crt version"
+      ],
+      "exit": 0,
+      "durationMs": 256,
+      "stdout": "restic 0.19.1 compiled with go1.26.4 on linux/amd64\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "printf 'disposable permission probe\\n' > /work/body"
+      ],
+      "exit": 0,
+      "durationMs": 246,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-reader.netrc -X GET  -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/config'"
+      ],
+      "exit": 0,
+      "durationMs": 256,
+      "stdout": "200",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-reader.netrc --head  -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/config'"
+      ],
+      "exit": 0,
+      "durationMs": 257,
+      "stdout": "200",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-reader.netrc -X POST --data-binary @/work/body -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/locks/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd'"
+      ],
+      "exit": 0,
+      "durationMs": 265,
+      "stdout": "200",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-reader.netrc -X DELETE  -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/locks/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd'"
+      ],
+      "exit": 0,
+      "durationMs": 257,
+      "stdout": "200",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-writer.netrc -X GET  -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/config'"
+      ],
+      "exit": 0,
+      "durationMs": 271,
+      "stdout": "200",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-writer.netrc --head  -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/config'"
+      ],
+      "exit": 0,
+      "durationMs": 268,
+      "stdout": "200",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-writer.netrc -X POST --data-binary @/work/body -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/locks/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd'"
+      ],
+      "exit": 0,
+      "durationMs": 272,
+      "stdout": "200",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-writer.netrc -X DELETE  -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/locks/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd'"
+      ],
+      "exit": 0,
+      "durationMs": 268,
+      "stdout": "200",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-admin.netrc -X GET  -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/config'"
+      ],
+      "exit": 0,
+      "durationMs": 264,
+      "stdout": "200",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-admin.netrc --head  -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/config'"
+      ],
+      "exit": 0,
+      "durationMs": 258,
+      "stdout": "200",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-admin.netrc -X POST --data-binary @/work/body -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/locks/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd'"
+      ],
+      "exit": 0,
+      "durationMs": 265,
+      "stdout": "200",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-admin.netrc -X DELETE  -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/locks/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd'"
+      ],
+      "exit": 0,
+      "durationMs": 267,
+      "stdout": "200",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-reader.netrc -X POST --data-binary @/work/body -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/data/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd'"
+      ],
+      "exit": 0,
+      "durationMs": 264,
+      "stdout": "403",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-reader.netrc -X DELETE  -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/data/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd'"
+      ],
+      "exit": 0,
+      "durationMs": 260,
+      "stdout": "403",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-reader.netrc -X POST --data-binary @/work/body -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/snapshots/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd'"
+      ],
+      "exit": 0,
+      "durationMs": 257,
+      "stdout": "403",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-reader.netrc -X DELETE  -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/snapshots/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd'"
+      ],
+      "exit": 0,
+      "durationMs": 263,
+      "stdout": "403",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-reader.netrc -X POST --data-binary @/work/body -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/index/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd'"
+      ],
+      "exit": 0,
+      "durationMs": 267,
+      "stdout": "403",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-reader.netrc -X DELETE  -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/index/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd'"
+      ],
+      "exit": 0,
+      "durationMs": 268,
+      "stdout": "403",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-reader.netrc -X POST --data-binary @/work/body -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/keys/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd'"
+      ],
+      "exit": 0,
+      "durationMs": 271,
+      "stdout": "403",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-reader.netrc -X DELETE  -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/keys/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd'"
+      ],
+      "exit": 0,
+      "durationMs": 272,
+      "stdout": "403",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-reader.netrc -X POST --data-binary @/work/body -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/config'"
+      ],
+      "exit": 0,
+      "durationMs": 263,
+      "stdout": "403",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-reader.netrc -X DELETE  -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/config'"
+      ],
+      "exit": 0,
+      "durationMs": 264,
+      "stdout": "403",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-reader.netrc -X POST --data-binary @/work/body -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/'"
+      ],
+      "exit": 0,
+      "durationMs": 268,
+      "stdout": "403",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-reader.netrc -X DELETE  -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/'"
+      ],
+      "exit": 0,
+      "durationMs": 259,
+      "stdout": "403",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-reader.netrc -X POST --data-binary @/work/body -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/locks/invalid'"
+      ],
+      "exit": 0,
+      "durationMs": 265,
+      "stdout": "403",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-reader.netrc -X DELETE  -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/locks/invalid'"
+      ],
+      "exit": 0,
+      "durationMs": 255,
+      "stdout": "403",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-reader.netrc -X POST --data-binary @/work/body -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/locks/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd/extra'"
+      ],
+      "exit": 0,
+      "durationMs": 257,
+      "stdout": "403",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-reader.netrc -X DELETE  -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/locks/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd/extra'"
+      ],
+      "exit": 0,
+      "durationMs": 252,
+      "stdout": "403",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-writer.netrc -X DELETE  -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/data/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd'"
+      ],
+      "exit": 0,
+      "durationMs": 269,
+      "stdout": "403",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-writer.netrc -X DELETE  -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/snapshots/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd'"
+      ],
+      "exit": 0,
+      "durationMs": 260,
+      "stdout": "403",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-writer.netrc -X DELETE  -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/config'"
+      ],
+      "exit": 0,
+      "durationMs": 258,
+      "stdout": "403",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-writer.netrc -X POST --data-binary @/work/body -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/data/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd'"
+      ],
+      "exit": 0,
+      "durationMs": 258,
+      "stdout": "200",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-writer.netrc -X POST --data-binary @/work/body -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/data/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd'"
+      ],
+      "exit": 0,
+      "durationMs": 257,
+      "stdout": "403",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-admin.netrc -X DELETE  -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/data/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd'"
+      ],
+      "exit": 0,
+      "durationMs": 255,
+      "stdout": "200",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-unknown.netrc -X GET  -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/config'"
+      ],
+      "exit": 0,
+      "durationMs": 255,
+      "stdout": "403",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-reader.netrc -X GET  -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/undeclared/config'"
+      ],
+      "exit": 0,
+      "durationMs": 254,
+      "stdout": "404",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-reader.netrc -X GET  -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/beta/config'"
+      ],
+      "exit": 0,
+      "durationMs": 248,
+      "stdout": "401",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/beta-reader.netrc -X GET  -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/config'"
+      ],
+      "exit": 0,
+      "durationMs": 251,
+      "stdout": "401",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-reader.netrc -X GET  -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/../beta/config'"
+      ],
+      "exit": 0,
+      "durationMs": 263,
+      "stdout": "401",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-reader.netrc -X GET  -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/%2e%2e/beta/config'"
+      ],
+      "exit": 0,
+      "durationMs": 251,
+      "stdout": "401",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-reader.netrc -X GET  -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha//../beta/config'"
+      ],
+      "exit": 0,
+      "durationMs": 263,
+      "stdout": "401",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-reader.netrc -X GET  -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/%2f..%2fbeta/config'"
+      ],
+      "exit": 0,
+      "durationMs": 256,
+      "stdout": "401",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-reader.netrc -X POST --data-binary @/work/body -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/locks/../data/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd'"
+      ],
+      "exit": 0,
+      "durationMs": 261,
+      "stdout": "403",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-reader.netrc -X POST --data-binary @/work/body -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/locks/%2e%2e/data/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd'"
+      ],
+      "exit": 0,
+      "durationMs": 259,
+      "stdout": "403",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --max-time 60 --path-as-is --cacert /credentials/ca.crt --netrc-file /credentials/alpha-reader.netrc -X POST --data-binary @/work/body -o /work/response -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/locks/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd%2f..%2f../config'"
+      ],
+      "exit": 0,
+      "durationMs": 264,
+      "stdout": "403",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "restic",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "mkdir /fixture; dd if=/dev/urandom of=/fixture/payload bs=1048576 count=32; sha256sum /fixture/payload"
+      ],
+      "exit": 0,
+      "durationMs": 501,
+      "stdout": "be59cc975843c3c0f04aa36867c90484d01ab7e97fb21083f050d60cbde892ff  /fixture/payload\n",
+      "stderr": "32+0 records in\n32+0 records out\n33554432 bytes (32.0MB) copied, 0.090891 seconds, 352.1MB/s\n"
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "restic",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "sha256sum /fixture/payload"
+      ],
+      "exit": 0,
+      "durationMs": 392,
+      "stdout": "be59cc975843c3c0f04aa36867c90484d01ab7e97fb21083f050d60cbde892ff  /fixture/payload\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "restic",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "export RESTIC_REPOSITORY='rest:https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/' RESTIC_PASSWORD_FILE=/credentials/password RESTIC_REST_USERNAME=writer; export RESTIC_REST_PASSWORD=\"$(cat /credentials/alpha-writer)\"; restic --cacert /credentials/ca.crt backup /fixture --host kubernetes-proof --tag retained"
+      ],
+      "exit": 0,
+      "durationMs": 1108,
+      "stdout": "no parent snapshot found, will read all files\n\nFiles:           1 new,     0 changed,     0 unmodified\nDirs:            1 new,     0 changed,     0 unmodified\nAdded to the repository: 32.002 MiB (32.004 MiB stored)\n\nprocessed 1 files, 32.000 MiB in 0:00\nsnapshot a835f2ce saved\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "restic",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "export RESTIC_REPOSITORY='rest:https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/' RESTIC_PASSWORD_FILE=/credentials/password RESTIC_REST_USERNAME=reader; export RESTIC_REST_PASSWORD=\"$(cat /credentials/alpha-reader)\"; restic --cacert /credentials/ca.crt snapshots --json"
+      ],
+      "exit": 0,
+      "durationMs": 941,
+      "stdout": "[{\"time\":\"2026-11-02T16:32:06.893126466Z\",\"tree\":\"b174667e51ed7457dcda5f6c80852a23827733830f688f8cd71bc6c8e9096569\",\"paths\":[\"/fixture\"],\"hostname\":\"kubernetes-proof\",\"username\":\"root\",\"tags\":[\"retained\"],\"program_version\":\"restic 0.19.1\",\"summary\":{\"backup_start\":\"2026-11-02T16:32:06.893126466Z\",\"backup_end\":\"2026-11-02T16:32:07.741634082Z\",\"files_new\":1,\"files_changed\":0,\"files_unmodified\":0,\"dirs_new\":1,\"dirs_changed\":0,\"dirs_unmodified\":0,\"data_blobs\":25,\"tree_blobs\":2,\"data_added\":33556753,\"data_added_packed\":33558821,\"total_files_processed\":1,\"total_bytes_processed\":33554432},\"id\":\"a835f2ce77b65f02a98450b898bccbab5a64999392092460218da6733a82e7c7\",\"short_id\":\"a835f2ce\"}]\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "restic",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "export RESTIC_REPOSITORY='rest:https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/' RESTIC_PASSWORD_FILE=/credentials/password RESTIC_REST_USERNAME=reader; export RESTIC_REST_PASSWORD=\"$(cat /credentials/alpha-reader)\"; restic --cacert /credentials/ca.crt cat config"
+      ],
+      "exit": 0,
+      "durationMs": 986,
+      "stdout": "{\n  \"version\": 2,\n  \"id\": \"cc9d848299436d98463998e59010e29576fc078f4e5d7fe47dd48111d4665642\",\n  \"chunker_polynomial\": \"23e0c2b1c3ee3f\"\n}\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "restic",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "export RESTIC_REPOSITORY='rest:https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/' RESTIC_PASSWORD_FILE=/credentials/password RESTIC_REST_USERNAME=reader; export RESTIC_REST_PASSWORD=\"$(cat /credentials/alpha-reader)\"; restic --cacert /credentials/ca.crt restore a835f2ce77b65f02a98450b898bccbab5a64999392092460218da6733a82e7c7 --target /restore-before"
+      ],
+      "exit": 0,
+      "durationMs": 1070,
+      "stdout": "restoring snapshot a835f2ce of [/fixture] at 2026-11-02 16:32:06.893126466 +0000 UTC by root@kubernetes-proof to /restore-before\nSummary: Restored 2 files/dirs (32.000 MiB) in 0:00\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "restic",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "sha256sum /restore-before/fixture/payload"
+      ],
+      "exit": 0,
+      "durationMs": 404,
+      "stdout": "be59cc975843c3c0f04aa36867c90484d01ab7e97fb21083f050d60cbde892ff  /restore-before/fixture/payload\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "restic",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "export RESTIC_REPOSITORY='rest:https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/' RESTIC_PASSWORD_FILE=/credentials/password RESTIC_REST_USERNAME=reader; export RESTIC_REST_PASSWORD=\"$(cat /credentials/alpha-reader)\"; restic --cacert /credentials/ca.crt --limit-download 64 restore a835f2ce77b65f02a98450b898bccbab5a64999392092460218da6733a82e7c7 --target /held-restore --no-cache >/tmp/held.log 2>&1 & echo $! >/tmp/held.pid"
+      ],
+      "exit": 0,
+      "durationMs": 250,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "restic",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "kill -0 \"$(cat /tmp/held.pid)\""
+      ],
+      "exit": 0,
+      "durationMs": 236,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "helm",
+        "template",
+        "proof",
+        "/Users/fke/repos/bartlapp/bartl-restic/chart",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "-f",
+        "/var/folders/tq/dpt94tts3ss61gw899q6v0_80000gp/T/bartl-hetzner-cKXtkt/evidence/restic-proof-mvzh7pg1-c9e27b/values.json",
+        "--show-only",
+        "templates/maintenance.yaml",
+        "--set",
+        "maintenance.enabled=true",
+        "--set",
+        "maintenance.name=blocked-by-reader",
+        "--set",
+        "maintenance.repository=alpha",
+        "--set",
+        "maintenance.action=check",
+        "--set",
+        "maintenance.host=proof-restic.restic-proof-mvzh7pg1-c9e27b.svc",
+        "--set",
+        "maintenance.credentialsSecret=alpha-admin"
+      ],
+      "exit": 0,
+      "durationMs": 79,
+      "stdout": "---\n# Source: bartl-restic/templates/maintenance.yaml\napiVersion: batch/v1\nkind: Job\nmetadata:\n  name: proof-restic-blocked-by-reader\nspec:\n  backoffLimit: 0\n  template:\n    spec:\n      automountServiceAccountToken: false\n      restartPolicy: Never\n      containers:\n        - name: restic\n          image: docker.io/restic/restic:0.19.1\n          command: [/bin/sh, -ec]\n          args:\n            - |\n              test \"$RESTIC_REST_USERNAME\" = admin || { echo 'Maintenance requires the separate admin account' >&2; exit 1; }\n              exec restic --cacert /credentials/ca.crt check --read-data\n          env:\n            - name: RESTIC_REPOSITORY\n              value: \"rest:https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/\"\n            - name: RESTIC_PASSWORD_FILE\n              value: /credentials/password\n            - name: RESTIC_REST_USERNAME\n              valueFrom:\n                secretKeyRef:\n                  name: \"alpha-admin\"\n                  key: username\n            - name: RESTIC_REST_PASSWORD\n              valueFrom:\n                secretKeyRef:\n                  name: \"alpha-admin\"\n                  key: restPassword\n          volumeMounts:\n            - name: credentials\n              mountPath: /credentials\n              readOnly: true\n      volumes:\n        - name: credentials\n          secret:\n            secretName: \"alpha-admin\"\n            items:\n              - key: password\n                path: password\n              - key: ca.crt\n                path: ca.crt\n\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "apply",
+        "-f",
+        "-"
+      ],
+      "exit": 0,
+      "durationMs": 237,
+      "stdout": "job.batch/proof-restic-blocked-by-reader created\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "logs",
+        "job/proof-restic-blocked-by-reader"
+      ],
+      "exit": 0,
+      "durationMs": 208,
+      "stdout": "using temporary cache in /tmp/restic-check-cache-2080652233\ncreate exclusive lock for repository\nrepo already locked, waiting up to 0s for the lock\nunable to create lock in backend: repository is already locked by PID 112 on client by root (UID 0, GID 0)\nlock was created at 2026-11-02 16:32:11 (1.933611809s ago)\nstorage ID 08ce345d\nthe `unlock` command can be used to remove stale locks\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "restic",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "kill -INT \"$(cat /tmp/held.pid)\"; rm -f /tmp/held.pid"
+      ],
+      "exit": 0,
+      "durationMs": 257,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "restic",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "export RESTIC_REPOSITORY='rest:https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/' RESTIC_PASSWORD_FILE=/credentials/password RESTIC_REST_USERNAME=admin; export RESTIC_REST_PASSWORD=\"$(cat /credentials/alpha-admin)\"; restic --cacert /credentials/ca.crt --limit-download 64 check --read-data --no-cache >/tmp/held.log 2>&1 & echo $! >/tmp/held.pid"
+      ],
+      "exit": 0,
+      "durationMs": 244,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "restic",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "kill -0 \"$(cat /tmp/held.pid)\""
+      ],
+      "exit": 0,
+      "durationMs": 248,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "restic",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "export RESTIC_REPOSITORY='rest:https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/' RESTIC_PASSWORD_FILE=/credentials/password RESTIC_REST_USERNAME=reader; export RESTIC_REST_PASSWORD=\"$(cat /credentials/alpha-reader)\"; restic --cacert /credentials/ca.crt restore a835f2ce77b65f02a98450b898bccbab5a64999392092460218da6733a82e7c7 --target /blocked-restore"
+      ],
+      "exit": 11,
+      "durationMs": 704,
+      "stdout": "repo already locked, waiting up to 0s for the lock\n",
+      "stderr": "unable to create lock in backend: repository is already locked exclusively by PID 173 on client by root (UID 0, GID 0)\nlock was created at 2026-11-02 16:32:18 (1.220517636s ago)\nstorage ID 5977551d\nthe `unlock` command can be used to remove stale locks\ncommand terminated with exit code 11\n"
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "restic",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "export RESTIC_REPOSITORY='rest:https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/' RESTIC_PASSWORD_FILE=/credentials/password RESTIC_REST_USERNAME=writer; export RESTIC_REST_PASSWORD=\"$(cat /credentials/alpha-writer)\"; restic --cacert /credentials/ca.crt backup /fixture --host blocked-writer"
+      ],
+      "exit": 11,
+      "durationMs": 752,
+      "stdout": "repo already locked, waiting up to 0s for the lock\n",
+      "stderr": "unable to create lock in backend: repository is already locked exclusively by PID 173 on client by root (UID 0, GID 0)\nlock was created at 2026-11-02 16:32:18 (1.941048338s ago)\nstorage ID 5977551d\nthe `unlock` command can be used to remove stale locks\ncommand terminated with exit code 11\n"
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "restic",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "kill -INT \"$(cat /tmp/held.pid)\"; rm -f /tmp/held.pid"
+      ],
+      "exit": 0,
+      "durationMs": 256,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "helm",
+        "template",
+        "proof",
+        "/Users/fke/repos/bartlapp/bartl-restic/chart",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "-f",
+        "/var/folders/tq/dpt94tts3ss61gw899q6v0_80000gp/T/bartl-hetzner-cKXtkt/evidence/restic-proof-mvzh7pg1-c9e27b/values.json",
+        "--show-only",
+        "templates/maintenance.yaml",
+        "--set",
+        "maintenance.enabled=true",
+        "--set",
+        "maintenance.name=full-check",
+        "--set",
+        "maintenance.repository=alpha",
+        "--set",
+        "maintenance.action=check",
+        "--set",
+        "maintenance.host=proof-restic.restic-proof-mvzh7pg1-c9e27b.svc",
+        "--set",
+        "maintenance.credentialsSecret=alpha-admin"
+      ],
+      "exit": 0,
+      "durationMs": 76,
+      "stdout": "---\n# Source: bartl-restic/templates/maintenance.yaml\napiVersion: batch/v1\nkind: Job\nmetadata:\n  name: proof-restic-full-check\nspec:\n  backoffLimit: 0\n  template:\n    spec:\n      automountServiceAccountToken: false\n      restartPolicy: Never\n      containers:\n        - name: restic\n          image: docker.io/restic/restic:0.19.1\n          command: [/bin/sh, -ec]\n          args:\n            - |\n              test \"$RESTIC_REST_USERNAME\" = admin || { echo 'Maintenance requires the separate admin account' >&2; exit 1; }\n              exec restic --cacert /credentials/ca.crt check --read-data\n          env:\n            - name: RESTIC_REPOSITORY\n              value: \"rest:https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/\"\n            - name: RESTIC_PASSWORD_FILE\n              value: /credentials/password\n            - name: RESTIC_REST_USERNAME\n              valueFrom:\n                secretKeyRef:\n                  name: \"alpha-admin\"\n                  key: username\n            - name: RESTIC_REST_PASSWORD\n              valueFrom:\n                secretKeyRef:\n                  name: \"alpha-admin\"\n                  key: restPassword\n          volumeMounts:\n            - name: credentials\n              mountPath: /credentials\n              readOnly: true\n      volumes:\n        - name: credentials\n          secret:\n            secretName: \"alpha-admin\"\n            items:\n              - key: password\n                path: password\n              - key: ca.crt\n                path: ca.crt\n\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "apply",
+        "-f",
+        "-"
+      ],
+      "exit": 0,
+      "durationMs": 222,
+      "stdout": "job.batch/proof-restic-full-check created\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "logs",
+        "job/proof-restic-full-check"
+      ],
+      "exit": 0,
+      "durationMs": 205,
+      "stdout": "using temporary cache in /tmp/restic-check-cache-2514961409\ncreate exclusive lock for repository\nload indexes\ncheck all packs\ncheck snapshots, trees and blobs\n[0:00] 100.00%  1 / 1 snapshots\nread all data\n[0:00] 100.00%  3 / 3 packs\nno errors were found\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "restic",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "printf 'disposable selected point\\n' > /fixture/marker"
+      ],
+      "exit": 0,
+      "durationMs": 246,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "restic",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "export RESTIC_REPOSITORY='rest:https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/' RESTIC_PASSWORD_FILE=/credentials/password RESTIC_REST_USERNAME=writer; export RESTIC_REST_PASSWORD=\"$(cat /credentials/alpha-writer)\"; restic --cacert /credentials/ca.crt backup /fixture --host kubernetes-proof --tag disposable"
+      ],
+      "exit": 0,
+      "durationMs": 961,
+      "stdout": "using parent snapshot a835f2ce\n\nFiles:           1 new,     0 changed,     1 unmodified\nDirs:            0 new,     1 changed,     0 unmodified\nAdded to the repository: 2.625 KiB (1.614 KiB stored)\n\nprocessed 2 files, 32.000 MiB in 0:00\nsnapshot b95958c8 saved\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "restic",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "export RESTIC_REPOSITORY='rest:https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/' RESTIC_PASSWORD_FILE=/credentials/password RESTIC_REST_USERNAME=reader; export RESTIC_REST_PASSWORD=\"$(cat /credentials/alpha-reader)\"; restic --cacert /credentials/ca.crt snapshots --json"
+      ],
+      "exit": 0,
+      "durationMs": 924,
+      "stdout": "[{\"time\":\"2026-11-02T16:32:06.893126466Z\",\"tree\":\"b174667e51ed7457dcda5f6c80852a23827733830f688f8cd71bc6c8e9096569\",\"paths\":[\"/fixture\"],\"hostname\":\"kubernetes-proof\",\"username\":\"root\",\"tags\":[\"retained\"],\"program_version\":\"restic 0.19.1\",\"summary\":{\"backup_start\":\"2026-11-02T16:32:06.893126466Z\",\"backup_end\":\"2026-11-02T16:32:07.741634082Z\",\"files_new\":1,\"files_changed\":0,\"files_unmodified\":0,\"dirs_new\":1,\"dirs_changed\":0,\"dirs_unmodified\":0,\"data_blobs\":25,\"tree_blobs\":2,\"data_added\":33556753,\"data_added_packed\":33558821,\"total_files_processed\":1,\"total_bytes_processed\":33554432},\"id\":\"a835f2ce77b65f02a98450b898bccbab5a64999392092460218da6733a82e7c7\",\"short_id\":\"a835f2ce\"},{\"time\":\"2026-11-02T16:32:27.505747178Z\",\"parent\":\"a835f2ce77b65f02a98450b898bccbab5a64999392092460218da6733a82e7c7\",\"tree\":\"43c15ffa026d9b6ed748e651567fd84b750efcebfb011d836d1c8fe8f48c30c3\",\"paths\":[\"/fixture\"],\"hostname\":\"kubernetes-proof\",\"username\":\"root\",\"tags\":[\"disposable\"],\"program_version\":\"restic 0.19.1\",\"summary\":{\"backup_start\":\"2026-11-02T16:32:27.505747178Z\",\"backup_end\":\"2026-11-02T16:32:28.163542461Z\",\"files_new\":1,\"files_changed\":0,\"files_unmodified\":1,\"dirs_new\":0,\"dirs_changed\":1,\"dirs_unmodified\":0,\"data_blobs\":1,\"tree_blobs\":2,\"data_added\":2688,\"data_added_packed\":1653,\"total_files_processed\":2,\"total_bytes_processed\":33554458},\"id\":\"b95958c86aa753517c1b07f9496bd05bdb7dbb0315f877ca70c0c7ea8f7b3e85\",\"short_id\":\"b95958c8\"}]\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "helm",
+        "template",
+        "proof",
+        "/Users/fke/repos/bartlapp/bartl-restic/chart",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "-f",
+        "/var/folders/tq/dpt94tts3ss61gw899q6v0_80000gp/T/bartl-hetzner-cKXtkt/evidence/restic-proof-mvzh7pg1-c9e27b/values.json",
+        "--show-only",
+        "templates/maintenance.yaml",
+        "--set",
+        "maintenance.enabled=true",
+        "--set",
+        "maintenance.name=selected-forget",
+        "--set",
+        "maintenance.repository=alpha",
+        "--set",
+        "maintenance.action=forget-prune",
+        "--set",
+        "maintenance.host=proof-restic.restic-proof-mvzh7pg1-c9e27b.svc",
+        "--set",
+        "maintenance.credentialsSecret=alpha-admin",
+        "--set-string",
+        "maintenance.snapshot=b95958c86aa753517c1b07f9496bd05bdb7dbb0315f877ca70c0c7ea8f7b3e85"
+      ],
+      "exit": 0,
+      "durationMs": 76,
+      "stdout": "---\n# Source: bartl-restic/templates/maintenance.yaml\napiVersion: batch/v1\nkind: Job\nmetadata:\n  name: proof-restic-selected-forget\nspec:\n  backoffLimit: 0\n  template:\n    spec:\n      automountServiceAccountToken: false\n      restartPolicy: Never\n      containers:\n        - name: restic\n          image: docker.io/restic/restic:0.19.1\n          command: [/bin/sh, -ec]\n          args:\n            - |\n              test \"$RESTIC_REST_USERNAME\" = admin || { echo 'Maintenance requires the separate admin account' >&2; exit 1; }\n              exec restic --cacert /credentials/ca.crt forget --prune \"b95958c86aa753517c1b07f9496bd05bdb7dbb0315f877ca70c0c7ea8f7b3e85\"\n          env:\n            - name: RESTIC_REPOSITORY\n              value: \"rest:https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/\"\n            - name: RESTIC_PASSWORD_FILE\n              value: /credentials/password\n            - name: RESTIC_REST_USERNAME\n              valueFrom:\n                secretKeyRef:\n                  name: \"alpha-admin\"\n                  key: username\n            - name: RESTIC_REST_PASSWORD\n              valueFrom:\n                secretKeyRef:\n                  name: \"alpha-admin\"\n                  key: restPassword\n          volumeMounts:\n            - name: credentials\n              mountPath: /credentials\n              readOnly: true\n      volumes:\n        - name: credentials\n          secret:\n            secretName: \"alpha-admin\"\n            items:\n              - key: password\n                path: password\n              - key: ca.crt\n                path: ca.crt\n\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "apply",
+        "-f",
+        "-"
+      ],
+      "exit": 0,
+      "durationMs": 237,
+      "stdout": "job.batch/proof-restic-selected-forget created\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "logs",
+        "job/proof-restic-selected-forget"
+      ],
+      "exit": 0,
+      "durationMs": 210,
+      "stdout": "[0:00] 100.00%  1 / 1 files deleted\n1 snapshots have been removed, running prune\nloading all snapshots...\nfinding data that is still in use for 1 snapshots\n[0:00] 100.00%  1 / 1 snapshots\nsearching used packs...\ncollecting packs for deletion and repacking\n[0:00] 100.00%  5 / 5 packs processed\n\nto repack:             0 blobs / 0 B\nthis removes:          0 blobs / 0 B\nto delete:             3 blobs / 1.494 KiB\ntotal prune:           3 blobs / 1.494 KiB\nremaining:            27 blobs / 32.003 MiB\nunused size after prune: 0 B (0.00% of remaining size)\n\nrebuilding index\n[0:00] 100.00%  2 / 2 indexes processed\n[0:00] 100.00%  2 / 2 old indexes deleted\nremoving 2 old packs\n[0:00] 100.00%  2 / 2 files deleted\ndone\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "restic",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "export RESTIC_REPOSITORY='rest:https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/' RESTIC_PASSWORD_FILE=/credentials/password RESTIC_REST_USERNAME=reader; export RESTIC_REST_PASSWORD=\"$(cat /credentials/alpha-reader)\"; restic --cacert /credentials/ca.crt snapshots --json"
+      ],
+      "exit": 0,
+      "durationMs": 960,
+      "stdout": "[{\"time\":\"2026-11-02T16:32:06.893126466Z\",\"tree\":\"b174667e51ed7457dcda5f6c80852a23827733830f688f8cd71bc6c8e9096569\",\"paths\":[\"/fixture\"],\"hostname\":\"kubernetes-proof\",\"username\":\"root\",\"tags\":[\"retained\"],\"program_version\":\"restic 0.19.1\",\"summary\":{\"backup_start\":\"2026-11-02T16:32:06.893126466Z\",\"backup_end\":\"2026-11-02T16:32:07.741634082Z\",\"files_new\":1,\"files_changed\":0,\"files_unmodified\":0,\"dirs_new\":1,\"dirs_changed\":0,\"dirs_unmodified\":0,\"data_blobs\":25,\"tree_blobs\":2,\"data_added\":33556753,\"data_added_packed\":33558821,\"total_files_processed\":1,\"total_bytes_processed\":33554432},\"id\":\"a835f2ce77b65f02a98450b898bccbab5a64999392092460218da6733a82e7c7\",\"short_id\":\"a835f2ce\"}]\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "delete",
+        "deployment",
+        "proof-restic",
+        "--wait=true"
+      ],
+      "exit": 0,
+      "durationMs": 185,
+      "stdout": "deployment.apps \"proof-restic\" deleted from restic-proof-mvzh7pg1-c9e27b namespace\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "helm",
+        "upgrade",
+        "proof",
+        "/Users/fke/repos/bartlapp/bartl-restic/chart",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "-f",
+        "/var/folders/tq/dpt94tts3ss61gw899q6v0_80000gp/T/bartl-hetzner-cKXtkt/evidence/restic-proof-mvzh7pg1-c9e27b/values.json",
+        "--wait",
+        "--timeout",
+        "5m"
+      ],
+      "exit": 0,
+      "durationMs": 3720,
+      "stdout": "Release \"proof\" has been upgraded. Happy Helming!\nNAME: proof\nLAST DEPLOYED: Mon Nov  2 17:32:36 2026\nNAMESPACE: restic-proof-mvzh7pg1-c9e27b\nSTATUS: deployed\nREVISION: 2\nDESCRIPTION: Upgrade complete\nTEST SUITE: None\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "rollout",
+        "status",
+        "deployment/proof-restic",
+        "--timeout=5m"
+      ],
+      "exit": 0,
+      "durationMs": 217,
+      "stdout": "deployment \"proof-restic\" successfully rolled out\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --fail --connect-timeout 2 --max-time 5 --head --cacert /credentials/ca.crt --netrc-file /credentials/alpha-reader.netrc -o /dev/null -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/config'"
+      ],
+      "exit": 0,
+      "durationMs": 265,
+      "stdout": "200",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "get",
+        "pvc",
+        "repositories",
+        "-o",
+        "json"
+      ],
+      "exit": 0,
+      "durationMs": 167,
+      "stdout": "{\n    \"apiVersion\": \"v1\",\n    \"kind\": \"PersistentVolumeClaim\",\n    \"metadata\": {\n        \"annotations\": {\n            \"kubectl.kubernetes.io/last-applied-configuration\": \"{\\\"apiVersion\\\":\\\"v1\\\",\\\"kind\\\":\\\"PersistentVolumeClaim\\\",\\\"metadata\\\":{\\\"annotations\\\":{},\\\"name\\\":\\\"repositories\\\",\\\"namespace\\\":\\\"restic-proof-mvzh7pg1-c9e27b\\\"},\\\"spec\\\":{\\\"accessModes\\\":[\\\"ReadWriteOnce\\\"],\\\"resources\\\":{\\\"requests\\\":{\\\"storage\\\":\\\"2Gi\\\"}}}}\\n\",\n            \"pv.kubernetes.io/bind-completed\": \"yes\",\n            \"pv.kubernetes.io/bound-by-controller\": \"yes\",\n            \"volume.beta.kubernetes.io/storage-provisioner\": \"rancher.io/local-path\",\n            \"volume.kubernetes.io/selected-node\": \"bartl-restic-20261102-01a4b7\",\n            \"volume.kubernetes.io/storage-provisioner\": \"rancher.io/local-path\"\n        },\n        \"creationTimestamp\": \"2026-11-02T16:31:35Z\",\n        \"finalizers\": [\n            \"kubernetes.io/pvc-protection\"\n        ],\n        \"name\": \"repositories\",\n        \"namespace\": \"restic-proof-mvzh7pg1-c9e27b\",\n        \"resourceVersion\": \"2313\",\n        \"uid\": \"e58021a4-18e8-4773-a867-a159125b0698\"\n    },\n    \"spec\": {\n        \"accessModes\": [\n            \"ReadWriteOnce\"\n        ],\n        \"resources\": {\n            \"requests\": {\n                \"storage\": \"2Gi\"\n            }\n        },\n        \"storageClassName\": \"local-path\",\n        \"volumeMode\": \"Filesystem\",\n        \"volumeName\": \"pvc-e58021a4-18e8-4773-a867-a159125b0698\"\n    },\n    \"status\": {\n        \"accessModes\": [\n            \"ReadWriteOnce\"\n        ],\n        \"capacity\": {\n            \"storage\": \"2Gi\"\n        },\n        \"phase\": \"Bound\"\n    }\n}\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "restic",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "export RESTIC_REPOSITORY='rest:https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/' RESTIC_PASSWORD_FILE=/credentials/password RESTIC_REST_USERNAME=reader; export RESTIC_REST_PASSWORD=\"$(cat /credentials/alpha-reader)\"; restic --cacert /credentials/ca.crt cat config"
+      ],
+      "exit": 0,
+      "durationMs": 1049,
+      "stdout": "{\n  \"version\": 2,\n  \"id\": \"cc9d848299436d98463998e59010e29576fc078f4e5d7fe47dd48111d4665642\",\n  \"chunker_polynomial\": \"23e0c2b1c3ee3f\"\n}\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "restic",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "export RESTIC_REPOSITORY='rest:https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/' RESTIC_PASSWORD_FILE=/credentials/password RESTIC_REST_USERNAME=reader; export RESTIC_REST_PASSWORD=\"$(cat /credentials/alpha-reader)\"; restic --cacert /credentials/ca.crt snapshots --json"
+      ],
+      "exit": 0,
+      "durationMs": 912,
+      "stdout": "[{\"time\":\"2026-11-02T16:32:06.893126466Z\",\"tree\":\"b174667e51ed7457dcda5f6c80852a23827733830f688f8cd71bc6c8e9096569\",\"paths\":[\"/fixture\"],\"hostname\":\"kubernetes-proof\",\"username\":\"root\",\"tags\":[\"retained\"],\"program_version\":\"restic 0.19.1\",\"summary\":{\"backup_start\":\"2026-11-02T16:32:06.893126466Z\",\"backup_end\":\"2026-11-02T16:32:07.741634082Z\",\"files_new\":1,\"files_changed\":0,\"files_unmodified\":0,\"dirs_new\":1,\"dirs_changed\":0,\"dirs_unmodified\":0,\"data_blobs\":25,\"tree_blobs\":2,\"data_added\":33556753,\"data_added_packed\":33558821,\"total_files_processed\":1,\"total_bytes_processed\":33554432},\"id\":\"a835f2ce77b65f02a98450b898bccbab5a64999392092460218da6733a82e7c7\",\"short_id\":\"a835f2ce\"}]\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "restic",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "export RESTIC_REPOSITORY='rest:https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/' RESTIC_PASSWORD_FILE=/credentials/password RESTIC_REST_USERNAME=reader; export RESTIC_REST_PASSWORD=\"$(cat /credentials/alpha-reader)\"; restic --cacert /credentials/ca.crt restore a835f2ce77b65f02a98450b898bccbab5a64999392092460218da6733a82e7c7 --target /restore-after"
+      ],
+      "exit": 0,
+      "durationMs": 1037,
+      "stdout": "restoring snapshot a835f2ce of [/fixture] at 2026-11-02 16:32:06.893126466 +0000 UTC by root@kubernetes-proof to /restore-after\nSummary: Restored 2 files/dirs (32.000 MiB) in 0:00\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "restic",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "sha256sum /restore-after/fixture/payload"
+      ],
+      "exit": 0,
+      "durationMs": 388,
+      "stdout": "be59cc975843c3c0f04aa36867c90484d01ab7e97fb21083f050d60cbde892ff  /restore-after/fixture/payload\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "helm",
+        "upgrade",
+        "proof",
+        "/Users/fke/repos/bartlapp/bartl-restic/chart",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "-f",
+        "/var/folders/tq/dpt94tts3ss61gw899q6v0_80000gp/T/bartl-hetzner-cKXtkt/evidence/restic-proof-mvzh7pg1-c9e27b/missing-values.json"
+      ],
+      "exit": 0,
+      "durationMs": 1131,
+      "stdout": "Release \"proof\" has been upgraded. Happy Helming!\nNAME: proof\nLAST DEPLOYED: Mon Nov  2 17:32:43 2026\nNAMESPACE: restic-proof-mvzh7pg1-c9e27b\nSTATUS: deployed\nREVISION: 3\nDESCRIPTION: Upgrade complete\nTEST SUITE: None\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "logs",
+        "proof-restic-7549bbcbf7-gp9ts",
+        "-c",
+        "require-initialized-repositories"
+      ],
+      "exit": 0,
+      "durationMs": 187,
+      "stdout": "Repository missing is missing its config; initialize it explicitly before deployment\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "helm",
+        "upgrade",
+        "proof",
+        "/Users/fke/repos/bartlapp/bartl-restic/chart",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "-f",
+        "/var/folders/tq/dpt94tts3ss61gw899q6v0_80000gp/T/bartl-hetzner-cKXtkt/evidence/restic-proof-mvzh7pg1-c9e27b/values.json",
+        "--wait",
+        "--timeout",
+        "5m"
+      ],
+      "exit": 0,
+      "durationMs": 3801,
+      "stdout": "Release \"proof\" has been upgraded. Happy Helming!\nNAME: proof\nLAST DEPLOYED: Mon Nov  2 17:32:47 2026\nNAMESPACE: restic-proof-mvzh7pg1-c9e27b\nSTATUS: deployed\nREVISION: 4\nDESCRIPTION: Upgrade complete\nTEST SUITE: None\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --fail --connect-timeout 2 --max-time 5 --head --cacert /credentials/ca.crt --netrc-file /credentials/alpha-reader.netrc -o /dev/null -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/config'"
+      ],
+      "exit": 7,
+      "durationMs": 249,
+      "stdout": "000",
+      "stderr": "curl: (7) Failed to connect to proof-restic.restic-proof-mvzh7pg1-c9e27b.svc port 443 after 1 ms: Could not connect to server\ncommand terminated with exit code 7\n"
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "curl",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "curl --silent --show-error --fail --connect-timeout 2 --max-time 5 --head --cacert /credentials/ca.crt --netrc-file /credentials/alpha-reader.netrc -o /dev/null -w '%{http_code}' 'https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/config'"
+      ],
+      "exit": 0,
+      "durationMs": 272,
+      "stdout": "200",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "deployment/proof-restic",
+        "-c",
+        "repository",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "test ! -e /data/missing/config"
+      ],
+      "exit": 0,
+      "durationMs": 258,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "restic",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "export RESTIC_REPOSITORY='rest:https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/' RESTIC_PASSWORD_FILE=/credentials/password RESTIC_REST_USERNAME=reader; export RESTIC_REST_PASSWORD=\"$(cat /credentials/alpha-reader)\"; restic --cacert /credentials/ca.crt cat config"
+      ],
+      "exit": 0,
+      "durationMs": 980,
+      "stdout": "{\n  \"version\": 2,\n  \"id\": \"cc9d848299436d98463998e59010e29576fc078f4e5d7fe47dd48111d4665642\",\n  \"chunker_polynomial\": \"23e0c2b1c3ee3f\"\n}\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "restic",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "export RESTIC_REPOSITORY='rest:https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/' RESTIC_PASSWORD_FILE=/credentials/password RESTIC_REST_USERNAME=reader; export RESTIC_REST_PASSWORD=\"$(cat /credentials/alpha-reader)\"; restic --cacert /credentials/ca.crt snapshots --json"
+      ],
+      "exit": 0,
+      "durationMs": 1019,
+      "stdout": "[{\"time\":\"2026-11-02T16:32:06.893126466Z\",\"tree\":\"b174667e51ed7457dcda5f6c80852a23827733830f688f8cd71bc6c8e9096569\",\"paths\":[\"/fixture\"],\"hostname\":\"kubernetes-proof\",\"username\":\"root\",\"tags\":[\"retained\"],\"program_version\":\"restic 0.19.1\",\"summary\":{\"backup_start\":\"2026-11-02T16:32:06.893126466Z\",\"backup_end\":\"2026-11-02T16:32:07.741634082Z\",\"files_new\":1,\"files_changed\":0,\"files_unmodified\":0,\"dirs_new\":1,\"dirs_changed\":0,\"dirs_unmodified\":0,\"data_blobs\":25,\"tree_blobs\":2,\"data_added\":33556753,\"data_added_packed\":33558821,\"total_files_processed\":1,\"total_bytes_processed\":33554432},\"id\":\"a835f2ce77b65f02a98450b898bccbab5a64999392092460218da6733a82e7c7\",\"short_id\":\"a835f2ce\"}]\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "restic",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "export RESTIC_REPOSITORY='rest:https://proof-restic.restic-proof-mvzh7pg1-c9e27b.svc/alpha/' RESTIC_PASSWORD_FILE=/credentials/password RESTIC_REST_USERNAME=reader; export RESTIC_REST_PASSWORD=\"$(cat /credentials/alpha-reader)\"; restic --cacert /credentials/ca.crt restore a835f2ce77b65f02a98450b898bccbab5a64999392092460218da6733a82e7c7 --target /restore-resumed"
+      ],
+      "exit": 0,
+      "durationMs": 1051,
+      "stdout": "restoring snapshot a835f2ce of [/fixture] at 2026-11-02 16:32:06.893126466 +0000 UTC by root@kubernetes-proof to /restore-resumed\nSummary: Restored 2 files/dirs (32.000 MiB) in 0:00\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "exec",
+        "client",
+        "-c",
+        "restic",
+        "--",
+        "/bin/sh",
+        "-ec",
+        "sha256sum /restore-resumed/fixture/payload"
+      ],
+      "exit": 0,
+      "durationMs": 418,
+      "stdout": "be59cc975843c3c0f04aa36867c90484d01ab7e97fb21083f050d60cbde892ff  /restore-resumed/fixture/payload\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "kubectl",
+        "--namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "delete",
+        "namespace",
+        "restic-proof-mvzh7pg1-c9e27b",
+        "--wait=true",
+        "--timeout=3m"
+      ],
+      "exit": 0,
+      "durationMs": 47986,
+      "stdout": "namespace \"restic-proof-mvzh7pg1-c9e27b\" deleted\n",
+      "stderr": "Warning: deleting cluster-scoped resources, not scoped to the provided namespace\n"
+    }
+  ],
+  "assertions": [
+    {
+      "name": "authenticated HTTPS ready after initial deployment",
+      "passed": true,
+      "attempts": 1,
+      "method": "HEAD",
+      "path": "/alpha/config",
+      "status": 200
+    },
+    {
+      "name": "reader GET config",
+      "passed": true,
+      "method": "GET",
+      "path": "/alpha/config",
+      "status": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "name": "reader HEAD config",
+      "passed": true,
+      "method": "HEAD",
+      "path": "/alpha/config",
+      "status": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "name": "reader native lock POST",
+      "passed": true,
+      "method": "POST",
+      "path": "/alpha/locks/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd",
+      "status": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "name": "reader native lock DELETE",
+      "passed": true,
+      "method": "DELETE",
+      "path": "/alpha/locks/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd",
+      "status": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "name": "writer GET config",
+      "passed": true,
+      "method": "GET",
+      "path": "/alpha/config",
+      "status": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "name": "writer HEAD config",
+      "passed": true,
+      "method": "HEAD",
+      "path": "/alpha/config",
+      "status": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "name": "writer native lock POST",
+      "passed": true,
+      "method": "POST",
+      "path": "/alpha/locks/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd",
+      "status": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "name": "writer native lock DELETE",
+      "passed": true,
+      "method": "DELETE",
+      "path": "/alpha/locks/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd",
+      "status": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "name": "admin GET config",
+      "passed": true,
+      "method": "GET",
+      "path": "/alpha/config",
+      "status": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "name": "admin HEAD config",
+      "passed": true,
+      "method": "HEAD",
+      "path": "/alpha/config",
+      "status": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "name": "admin native lock POST",
+      "passed": true,
+      "method": "POST",
+      "path": "/alpha/locks/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd",
+      "status": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "name": "admin native lock DELETE",
+      "passed": true,
+      "method": "DELETE",
+      "path": "/alpha/locks/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd",
+      "status": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "name": "reader cannot POST /alpha/data/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd",
+      "passed": true,
+      "method": "POST",
+      "path": "/alpha/data/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd",
+      "status": 403,
+      "expected": [
+        403
+      ]
+    },
+    {
+      "name": "reader cannot DELETE /alpha/data/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd",
+      "passed": true,
+      "method": "DELETE",
+      "path": "/alpha/data/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd",
+      "status": 403,
+      "expected": [
+        403
+      ]
+    },
+    {
+      "name": "reader cannot POST /alpha/snapshots/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd",
+      "passed": true,
+      "method": "POST",
+      "path": "/alpha/snapshots/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd",
+      "status": 403,
+      "expected": [
+        403
+      ]
+    },
+    {
+      "name": "reader cannot DELETE /alpha/snapshots/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd",
+      "passed": true,
+      "method": "DELETE",
+      "path": "/alpha/snapshots/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd",
+      "status": 403,
+      "expected": [
+        403
+      ]
+    },
+    {
+      "name": "reader cannot POST /alpha/index/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd",
+      "passed": true,
+      "method": "POST",
+      "path": "/alpha/index/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd",
+      "status": 403,
+      "expected": [
+        403
+      ]
+    },
+    {
+      "name": "reader cannot DELETE /alpha/index/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd",
+      "passed": true,
+      "method": "DELETE",
+      "path": "/alpha/index/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd",
+      "status": 403,
+      "expected": [
+        403
+      ]
+    },
+    {
+      "name": "reader cannot POST /alpha/keys/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd",
+      "passed": true,
+      "method": "POST",
+      "path": "/alpha/keys/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd",
+      "status": 403,
+      "expected": [
+        403
+      ]
+    },
+    {
+      "name": "reader cannot DELETE /alpha/keys/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd",
+      "passed": true,
+      "method": "DELETE",
+      "path": "/alpha/keys/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd",
+      "status": 403,
+      "expected": [
+        403
+      ]
+    },
+    {
+      "name": "reader cannot POST /alpha/config",
+      "passed": true,
+      "method": "POST",
+      "path": "/alpha/config",
+      "status": 403,
+      "expected": [
+        403
+      ]
+    },
+    {
+      "name": "reader cannot DELETE /alpha/config",
+      "passed": true,
+      "method": "DELETE",
+      "path": "/alpha/config",
+      "status": 403,
+      "expected": [
+        403
+      ]
+    },
+    {
+      "name": "reader cannot POST /alpha/",
+      "passed": true,
+      "method": "POST",
+      "path": "/alpha/",
+      "status": 403,
+      "expected": [
+        403
+      ]
+    },
+    {
+      "name": "reader cannot DELETE /alpha/",
+      "passed": true,
+      "method": "DELETE",
+      "path": "/alpha/",
+      "status": 403,
+      "expected": [
+        403
+      ]
+    },
+    {
+      "name": "reader cannot POST /alpha/locks/invalid",
+      "passed": true,
+      "method": "POST",
+      "path": "/alpha/locks/invalid",
+      "status": 403,
+      "expected": [
+        403
+      ]
+    },
+    {
+      "name": "reader cannot DELETE /alpha/locks/invalid",
+      "passed": true,
+      "method": "DELETE",
+      "path": "/alpha/locks/invalid",
+      "status": 403,
+      "expected": [
+        403
+      ]
+    },
+    {
+      "name": "reader cannot POST /alpha/locks/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd/extra",
+      "passed": true,
+      "method": "POST",
+      "path": "/alpha/locks/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd/extra",
+      "status": 403,
+      "expected": [
+        403
+      ]
+    },
+    {
+      "name": "reader cannot DELETE /alpha/locks/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd/extra",
+      "passed": true,
+      "method": "DELETE",
+      "path": "/alpha/locks/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd/extra",
+      "status": 403,
+      "expected": [
+        403
+      ]
+    },
+    {
+      "name": "writer cannot delete /alpha/data/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd",
+      "passed": true,
+      "method": "DELETE",
+      "path": "/alpha/data/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd",
+      "status": 403,
+      "expected": [
+        403
+      ]
+    },
+    {
+      "name": "writer cannot delete /alpha/snapshots/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd",
+      "passed": true,
+      "method": "DELETE",
+      "path": "/alpha/snapshots/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd",
+      "status": 403,
+      "expected": [
+        403
+      ]
+    },
+    {
+      "name": "writer cannot delete /alpha/config",
+      "passed": true,
+      "method": "DELETE",
+      "path": "/alpha/config",
+      "status": 403,
+      "expected": [
+        403
+      ]
+    },
+    {
+      "name": "writer creates disposable data",
+      "passed": true,
+      "method": "POST",
+      "path": "/alpha/data/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd",
+      "status": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "name": "writer cannot overwrite data",
+      "passed": true,
+      "method": "POST",
+      "path": "/alpha/data/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd",
+      "status": 403,
+      "expected": [
+        403
+      ]
+    },
+    {
+      "name": "admin removes disposable data",
+      "passed": true,
+      "method": "DELETE",
+      "path": "/alpha/data/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd",
+      "status": 200,
+      "expected": [
+        200
+      ]
+    },
+    {
+      "name": "authenticated unknown user denied",
+      "passed": true,
+      "method": "GET",
+      "path": "/alpha/config",
+      "status": 403,
+      "expected": [
+        403
+      ]
+    },
+    {
+      "name": "undeclared repository denied",
+      "passed": true,
+      "method": "GET",
+      "path": "/undeclared/config",
+      "status": 404,
+      "expected": [
+        404
+      ]
+    },
+    {
+      "name": "alpha credentials denied at beta",
+      "passed": true,
+      "method": "GET",
+      "path": "/beta/config",
+      "status": 401,
+      "expected": [
+        401
+      ]
+    },
+    {
+      "name": "beta credentials denied at alpha",
+      "passed": true,
+      "method": "GET",
+      "path": "/alpha/config",
+      "status": 401,
+      "expected": [
+        401
+      ]
+    },
+    {
+      "name": "normalized cross-repo path denied /alpha/../beta/config",
+      "passed": true,
+      "method": "GET",
+      "path": "/alpha/../beta/config",
+      "status": 401,
+      "expected": [
+        400,
+        401,
+        403,
+        404
+      ]
+    },
+    {
+      "name": "normalized cross-repo path denied /alpha/%2e%2e/beta/config",
+      "passed": true,
+      "method": "GET",
+      "path": "/alpha/%2e%2e/beta/config",
+      "status": 401,
+      "expected": [
+        400,
+        401,
+        403,
+        404
+      ]
+    },
+    {
+      "name": "normalized cross-repo path denied /alpha//../beta/config",
+      "passed": true,
+      "method": "GET",
+      "path": "/alpha//../beta/config",
+      "status": 401,
+      "expected": [
+        400,
+        401,
+        403,
+        404
+      ]
+    },
+    {
+      "name": "normalized cross-repo path denied /alpha/%2f..%2fbeta/config",
+      "passed": true,
+      "method": "GET",
+      "path": "/alpha/%2f..%2fbeta/config",
+      "status": 401,
+      "expected": [
+        400,
+        401,
+        403,
+        404
+      ]
+    },
+    {
+      "name": "normalized write denied /alpha/locks/../data/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd",
+      "passed": true,
+      "method": "POST",
+      "path": "/alpha/locks/../data/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd",
+      "status": 403,
+      "expected": [
+        400,
+        403,
+        404
+      ]
+    },
+    {
+      "name": "normalized write denied /alpha/locks/%2e%2e/data/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd",
+      "passed": true,
+      "method": "POST",
+      "path": "/alpha/locks/%2e%2e/data/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd",
+      "status": 403,
+      "expected": [
+        400,
+        403,
+        404
+      ]
+    },
+    {
+      "name": "normalized write denied /alpha/locks/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd%2f..%2f../config",
+      "passed": true,
+      "method": "POST",
+      "path": "/alpha/locks/b79501278545f73d7eae68ee6d803b82182e3e97144ee6bf9311d053cf84f9bd%2f..%2f../config",
+      "status": 403,
+      "expected": [
+        400,
+        403,
+        404
+      ]
+    },
+    {
+      "name": "full snapshot identifier",
+      "passed": true
+    },
+    {
+      "name": "byte-correct reader restore /restore-before",
+      "passed": true,
+      "sha256": "be59cc975843c3c0f04aa36867c90484d01ab7e97fb21083f050d60cbde892ff",
+      "snapshot": "a835f2ce77b65f02a98450b898bccbab5a64999392092460218da6733a82e7c7"
+    },
+    {
+      "name": "observed native lock during reader restore",
+      "passed": true,
+      "ids": [
+        "08ce345d3aecffdcdc5542f504641f0e789a3048c89822a401039aa95958b7ba"
+      ],
+      "operation": "restore",
+      "exclusiveExpected": false
+    },
+    {
+      "name": "maintenance proof-restic-blocked-by-reader: locked",
+      "passed": true,
+      "logs": "using temporary cache in /tmp/restic-check-cache-2080652233\ncreate exclusive lock for repository\nrepo already locked, waiting up to 0s for the lock\nunable to create lock in backend: repository is already locked by PID 112 on client by root (UID 0, GID 0)\nlock was created at 2026-11-02 16:32:11 (1.933611809s ago)\nstorage ID 08ce345d\nthe `unlock` command can be used to remove stale locks\n"
+    },
+    {
+      "name": "observed native lock during admin check",
+      "passed": true,
+      "ids": [
+        "5977551d79412870e4f734f7f79d6bacdec491ad874979d9c4707761cbb61b1d"
+      ],
+      "operation": "check --read-data",
+      "exclusiveExpected": true
+    },
+    {
+      "name": "reader rejects exclusive maintenance lock",
+      "passed": true,
+      "exit": 11,
+      "stderr": "unable to create lock in backend: repository is already locked exclusively by PID 173 on client by root (UID 0, GID 0)\nlock was created at 2026-11-02 16:32:18 (1.220517636s ago)\nstorage ID 5977551d\nthe `unlock` command can be used to remove stale locks\ncommand terminated with exit code 11\n"
+    },
+    {
+      "name": "writer rejects exclusive maintenance lock",
+      "passed": true,
+      "exit": 11,
+      "stderr": "unable to create lock in backend: repository is already locked exclusively by PID 173 on client by root (UID 0, GID 0)\nlock was created at 2026-11-02 16:32:18 (1.941048338s ago)\nstorage ID 5977551d\nthe `unlock` command can be used to remove stale locks\ncommand terminated with exit code 11\n"
+    },
+    {
+      "name": "maintenance proof-restic-full-check: complete",
+      "passed": true,
+      "logs": "using temporary cache in /tmp/restic-check-cache-2514961409\ncreate exclusive lock for repository\nload indexes\ncheck all packs\ncheck snapshots, trees and blobs\n[0:00] 100.00%  1 / 1 snapshots\nread all data\n[0:00] 100.00%  3 / 3 packs\nno errors were found\n"
+    },
+    {
+      "name": "distinct disposable full point selected",
+      "passed": true,
+      "snapshot": "b95958c86aa753517c1b07f9496bd05bdb7dbb0315f877ca70c0c7ea8f7b3e85"
+    },
+    {
+      "name": "maintenance proof-restic-selected-forget: complete",
+      "passed": true,
+      "logs": "[0:00] 100.00%  1 / 1 files deleted\n1 snapshots have been removed, running prune\nloading all snapshots...\nfinding data that is still in use for 1 snapshots\n[0:00] 100.00%  1 / 1 snapshots\nsearching used packs...\ncollecting packs for deletion and repacking\n[0:00] 100.00%  5 / 5 packs processed\n\nto repack:             0 blobs / 0 B\nthis removes:          0 blobs / 0 B\nto delete:             3 blobs / 1.494 KiB\ntotal prune:           3 blobs / 1.494 KiB\nremaining:            27 blobs / 32.003 MiB\nunused size after prune: 0 B (0.00% of remaining size)\n\nrebuilding index\n[0:00] 100.00%  2 / 2 indexes processed\n[0:00] 100.00%  2 / 2 old indexes deleted\nremoving 2 old packs\n[0:00] 100.00%  2 / 2 files deleted\ndone\n"
+    },
+    {
+      "name": "forget-prune removes only selected recovery point",
+      "passed": true,
+      "remaining": [
+        "a835f2ce77b65f02a98450b898bccbab5a64999392092460218da6733a82e7c7"
+      ]
+    },
+    {
+      "name": "authenticated HTTPS ready after Deployment replacement",
+      "passed": true,
+      "attempts": 1,
+      "method": "HEAD",
+      "path": "/alpha/config",
+      "status": 200
+    },
+    {
+      "name": "replacement preserves PVC UID, repository identity and snapshot",
+      "passed": true,
+      "pvcUID": "e58021a4-18e8-4773-a867-a159125b0698",
+      "repositoryID": "cc9d848299436d98463998e59010e29576fc078f4e5d7fe47dd48111d4665642",
+      "snapshotID": "a835f2ce77b65f02a98450b898bccbab5a64999392092460218da6733a82e7c7"
+    },
+    {
+      "name": "byte-correct reader restore /restore-after",
+      "passed": true,
+      "sha256": "be59cc975843c3c0f04aa36867c90484d01ab7e97fb21083f050d60cbde892ff",
+      "snapshot": "a835f2ce77b65f02a98450b898bccbab5a64999392092460218da6733a82e7c7"
+    },
+    {
+      "name": "missing repository fails visibly without implicit initialization",
+      "passed": true,
+      "logs": "Repository missing is missing its config; initialize it explicitly before deployment\n",
+      "initReadOnly": true
+    },
+    {
+      "name": "authenticated HTTPS ready after original startup values restored",
+      "passed": true,
+      "attempts": 2,
+      "method": "HEAD",
+      "path": "/alpha/config",
+      "status": 200
+    },
+    {
+      "name": "missing repository was not initialized on PVC",
+      "passed": true
+    },
+    {
+      "name": "startup failure preserves existing repository and point",
+      "passed": true
+    },
+    {
+      "name": "byte-correct reader restore /restore-resumed",
+      "passed": true,
+      "sha256": "be59cc975843c3c0f04aa36867c90484d01ab7e97fb21083f050d60cbde892ff",
+      "snapshot": "a835f2ce77b65f02a98450b898bccbab5a64999392092460218da6733a82e7c7"
+    }
+  ],
+  "status": "passed",
+  "pvcUID": "e58021a4-18e8-4773-a867-a159125b0698",
+  "payloadSHA256": "be59cc975843c3c0f04aa36867c90484d01ab7e97fb21083f050d60cbde892ff",
+  "snapshotID": "a835f2ce77b65f02a98450b898bccbab5a64999392092460218da6733a82e7c7",
+  "repositoryID": "cc9d848299436d98463998e59010e29576fc078f4e5d7fe47dd48111d4665642",
+  "cleanup": "owned namespace deleted",
+  "finished": "2026-11-02T16:33:44.464Z",
+  "infrastructure": {
+    "provider": "Hetzner",
+    "serverID": 174187098,
+    "firewallID": 11952949,
+    "primaryIPID": 159781923,
+    "created": "2026-11-02T16:12:46Z",
+    "cleanupRequestedAt": "2026-11-02T16:36:52.846Z",
+    "deletedAt": "2026-11-02T16:37:24.238Z",
+    "verifiedAbsent": {
+      "server": 404,
+      "primaryIP": 404,
+      "firewall": 404
+    },
+    "budgetEUR": 5,
+    "hourlyServerEUR": 0.0569,
+    "hourlyIPv4EUR": 0.0008,
+    "billedHoursUpperBound": 1,
+    "estimatedUpperBoundEUR": 0.0577,
+    "outgoingTrafficBytes": 0,
+    "includedTrafficBytes": 21990232555520,
+    "billingNote": "Estimate from observed provider hourly rates rounded up to whole hours, not an invoice; traffic remained inside the included allowance."
+  }
+}
