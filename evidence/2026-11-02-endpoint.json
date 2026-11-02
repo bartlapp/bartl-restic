@@ -1,0 +1,880 @@
+{
+  "date": "2026-11-02",
+  "scope": "Native darwin/amd64 processes using Helm-rendered nginx authorization policy and startup/maintenance shell bodies; not a Kubernetes/PVC qualification",
+  "versions": {
+    "restic": "restic 0.19.1 compiled with go1.26.4 on darwin/amd64",
+    "restServerSource": "github.com/restic/rest-server/cmd/rest-server@v0.14.0",
+    "nginx": "1.28.0",
+    "nginxSourceSHA256": "c6b5c6b086c0df9d3ca3ff5e084c1d0ef909e6038279c71c1c3e985f576ff76a"
+  },
+  "renderedConfigSHA256": "1615b6d2ca8f13f217027bae30353a1b58f4337628616e3b1f64e9f031df2268",
+  "localSubstitutions": [
+    "Container filesystem paths mapped into a disposable directory",
+    "Loopback backend ports 8000-8003 mapped to 18000-18003; TLS bound to 127.0.0.1:18443",
+    "Disposable trusted certificate with IP SAN 127.0.0.1; no DNS override or TLS-verification bypass",
+    "Maintenance HOME points to disposable writable storage"
+  ],
+  "results": {
+    "httpProbes": [
+      {
+        "role": "reader",
+        "method": "GET",
+        "path": "keycloak/config",
+        "status": 200
+      },
+      {
+        "role": "reader",
+        "method": "HEAD",
+        "path": "keycloak/config",
+        "status": 200
+      },
+      {
+        "role": "reader",
+        "method": "GET",
+        "path": "other/config",
+        "status": 401
+      },
+      {
+        "role": "unknown",
+        "method": "GET",
+        "path": "keycloak/config",
+        "status": 403
+      },
+      {
+        "role": "reader",
+        "method": "GET",
+        "path": "undeclared/config",
+        "status": 404
+      },
+      {
+        "role": "reader",
+        "method": "POST",
+        "path": "keycloak/data/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "status": 403
+      },
+      {
+        "role": "reader",
+        "method": "DELETE",
+        "path": "keycloak/data/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "status": 403
+      },
+      {
+        "role": "reader",
+        "method": "POST",
+        "path": "keycloak/snapshots/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "status": 403
+      },
+      {
+        "role": "reader",
+        "method": "DELETE",
+        "path": "keycloak/snapshots/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "status": 403
+      },
+      {
+        "role": "reader",
+        "method": "POST",
+        "path": "keycloak/index/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "status": 403
+      },
+      {
+        "role": "reader",
+        "method": "DELETE",
+        "path": "keycloak/index/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "status": 403
+      },
+      {
+        "role": "reader",
+        "method": "POST",
+        "path": "keycloak/keys/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "status": 403
+      },
+      {
+        "role": "reader",
+        "method": "DELETE",
+        "path": "keycloak/keys/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "status": 403
+      },
+      {
+        "role": "reader",
+        "method": "POST",
+        "path": "keycloak/config",
+        "status": 403
+      },
+      {
+        "role": "reader",
+        "method": "DELETE",
+        "path": "keycloak/config",
+        "status": 403
+      },
+      {
+        "role": "reader",
+        "method": "POST",
+        "path": "keycloak/",
+        "status": 403
+      },
+      {
+        "role": "reader",
+        "method": "DELETE",
+        "path": "keycloak/",
+        "status": 403
+      },
+      {
+        "role": "reader",
+        "method": "POST",
+        "path": "keycloak/locks/bad",
+        "status": 403
+      },
+      {
+        "role": "reader",
+        "method": "DELETE",
+        "path": "keycloak/locks/bad",
+        "status": 403
+      },
+      {
+        "role": "reader",
+        "method": "POST",
+        "path": "keycloak/locks/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/extra",
+        "status": 403
+      },
+      {
+        "role": "reader",
+        "method": "DELETE",
+        "path": "keycloak/locks/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/extra",
+        "status": 403
+      },
+      {
+        "role": "reader",
+        "method": "POST",
+        "path": "keycloak/locks/3dbbae694c062e0f3225d77ee7e0f6993d6018ab515afe869d0889cf41e1505f",
+        "status": 200
+      },
+      {
+        "role": "reader",
+        "method": "DELETE",
+        "path": "keycloak/locks/3dbbae694c062e0f3225d77ee7e0f6993d6018ab515afe869d0889cf41e1505f",
+        "status": 200
+      },
+      {
+        "role": "writer",
+        "method": "DELETE",
+        "path": "keycloak/config",
+        "status": 403
+      },
+      {
+        "role": "writer",
+        "method": "DELETE",
+        "path": "keycloak/data/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "status": 403
+      },
+      {
+        "role": "writer",
+        "method": "DELETE",
+        "path": "keycloak/snapshots/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "status": 403
+      },
+      {
+        "role": "reader",
+        "method": "DELETE",
+        "path": "keycloak/snapshots/59c757ec5adcb9e8b88934d61234d1163cf216c1807cdf009a17e04ceda2e609",
+        "status": 403
+      },
+      {
+        "role": "writer",
+        "method": "DELETE",
+        "path": "keycloak/snapshots/59c757ec5adcb9e8b88934d61234d1163cf216c1807cdf009a17e04ceda2e609",
+        "status": 403
+      },
+      {
+        "role": "writer",
+        "method": "POST",
+        "path": "keycloak/config",
+        "status": 403
+      },
+      {
+        "role": "reader",
+        "method": "POST",
+        "path": "keycloak/locks/83ede0da0e897b63bca6c60bf2210b412c581acca2682d3e4628f30a7edfb55e",
+        "status": 200
+      },
+      {
+        "role": "reader",
+        "method": "GET",
+        "path": "keycloak/locks/83ede0da0e897b63bca6c60bf2210b412c581acca2682d3e4628f30a7edfb55e",
+        "status": 200
+      },
+      {
+        "role": "reader",
+        "method": "PUT",
+        "path": "keycloak/locks/83ede0da0e897b63bca6c60bf2210b412c581acca2682d3e4628f30a7edfb55e",
+        "status": 403
+      },
+      {
+        "role": "reader",
+        "method": "DELETE",
+        "path": "keycloak/locks/83ede0da0e897b63bca6c60bf2210b412c581acca2682d3e4628f30a7edfb55e",
+        "status": 200
+      }
+    ],
+    "rawPathProbes": [
+      {
+        "method": "DELETE",
+        "path": "keycloak/locks/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/../../config",
+        "status": 403
+      },
+      {
+        "method": "DELETE",
+        "path": "keycloak/locks/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa%2f..%2f..%2fconfig",
+        "status": 403
+      },
+      {
+        "method": "DELETE",
+        "path": "keycloak/locks/%252e%252e%252fconfig",
+        "status": 403
+      },
+      {
+        "method": "DELETE",
+        "path": "keycloak/locks/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/",
+        "status": 403
+      },
+      {
+        "method": "DELETE",
+        "path": "keycloak/locks/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "status": 404
+      },
+      {
+        "method": "GET",
+        "path": "keycloak/../other/config",
+        "status": 401
+      },
+      {
+        "method": "GET",
+        "path": "keycloak/%2e%2e/other/config",
+        "status": 401
+      },
+      {
+        "method": "GET",
+        "path": "keycloak/%252e%252e/other/config",
+        "status": 404
+      }
+    ],
+    "backupAndRestore": {
+      "repositoryID": "657531e4ba05143f81618425d06beb10bad0e28064bf045c7f50f60433014e5d",
+      "snapshotID": "59c757ec5adcb9e8b88934d61234d1163cf216c1807cdf009a17e04ceda2e609",
+      "payloadBytes": 16777216,
+      "sha256": "a9d4c8cc1516b7c4e7ceabb33bb292166a60d8e627743fc1286c5b53c2d7dc11",
+      "restoredSha256": "a9d4c8cc1516b7c4e7ceabb33bb292166a60d8e627743fc1286c5b53c2d7dc11"
+    },
+    "nativeExclusion": {
+      "maintenanceWhileReaderRestore": 11,
+      "readerRestoreWhileExclusiveCheck": 11,
+      "writerBackupWhileExclusiveCheck": 11,
+      "readerRestoreCompleted": 0,
+      "exclusiveCheckCompleted": 0,
+      "locksReleased": true
+    },
+    "processReplacement": {
+      "directoryInodeUnchanged": true,
+      "repositoryIDUnchanged": true,
+      "snapshotIDUnchanged": true,
+      "restoredSha256": "a9d4c8cc1516b7c4e7ceabb33bb292166a60d8e627743fc1286c5b53c2d7dc11",
+      "readerAndWriterDeletionStillDenied": true
+    },
+    "startupMissingState": {
+      "exit": 1,
+      "missingRepositoryNotCreated": true
+    },
+    "maintenance": {
+      "renderedCheckExit": 0,
+      "renderedForgetPruneExit": 0,
+      "selectedSnapshotRemoved": true
+    },
+    "consumerChecks": [
+      "go test ./internal/native passed",
+      "bash -n examples/rest-server-lab.sh passed, including after correcting the lock probe payload checksum",
+      "node --check tests/kc-a4.mjs passed"
+    ]
+  },
+  "limitations": [
+    "Colima start timed out; direct limactl start failed at usernet Unix-socket bind with operation not permitted. Docker daemon unavailable. No Kubernetes cluster or PVC was exercised.",
+    "Full Keycloak backup/recovery was not exercised. Existing published 0.5.0 images still bypass locks.",
+    "Keycloak manifests currently bind the original repository ID and reject recovery from restic copy into a new repository.",
+    "Darwin nginx returned 404 for an uppercase synthetic lock path; Linux container behavior not exercised."
+  ],
+  "commands": [
+    {
+      "argv": [
+        "helm",
+        "lint",
+        "./chart",
+        "-f",
+        "$LAB/values.json"
+      ],
+      "code": 0,
+      "stdout": "==> Linting ./chart\n[INFO] Chart.yaml: icon is recommended\n\n1 chart(s) linted, 0 chart(s) failed\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "helm",
+        "template",
+        "backup",
+        "./chart",
+        "-n",
+        "bartl-restic-smoke",
+        "-f",
+        "$LAB/values.json"
+      ],
+      "code": 0,
+      "stdout": "---\n# Source: bartl-restic/templates/service.yaml\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: backup-restic\nspec:\n  podSelector:\n    matchLabels:\n      app.kubernetes.io/name: backup-restic\n  policyTypes: [Ingress]\n  ingress:\n    - ports:\n        - protocol: TCP\n          port: 8443\n\n---\n# Source: bartl-restic/templates/configmap.yaml\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: backup-restic\ndata:\n  nginx.conf: |\n    pid /tmp/nginx.pid;\n    events {}\n    http {\n      access_log off;\n      server_tokens off;\n      client_body_temp_path /tmp/client-body;\n      proxy_temp_path /tmp/proxy;\n      map $remote_user $repository_backend {\n        default http://127.0.0.1:8003;\n        reader http://127.0.0.1:8002;\n        writer http://127.0.0.1:8000;\n        admin http://127.0.0.1:8001;\n      }\n      server {\n        listen 8443 ssl;\n        ssl_protocols TLSv1.2 TLSv1.3;\n        ssl_certificate /tls/tls.crt;\n        ssl_certificate_key /tls/tls.key;\n        client_max_body_size 0;\n        location / { return 404; }\n        location /keycloak/ {\n          auth_basic \"Restic keycloak\";\n          auth_basic_user_file /auth/keycloak/htpasswd;\n          proxy_request_buffering off;\n          proxy_read_timeout 600s;\n          proxy_pass $repository_backend;\n        }\n        location /other/ {\n          auth_basic \"Restic other\";\n          auth_basic_user_file /auth/other/htpasswd;\n          proxy_request_buffering off;\n          proxy_read_timeout 600s;\n          proxy_pass $repository_backend;\n        }\n      }\n      # This listener is reachable only inside the Pod. Data remains read-only\n      # for readers, but Restic may create/remove its native lock objects.\n      server {\n        listen 127.0.0.1:8002;\n        client_max_body_size 0;\n        location ~ \"^/keycloak/locks/[a-f0-9]{64}$\" {\n          limit_except GET POST DELETE { deny all; }\n          proxy_request_buffering off;\n          proxy_read_timeout 600s;\n          proxy_pass http://127.0.0.1:8001;\n        }\n        location ~ \"^/other/locks/[a-f0-9]{64}$\" {\n          limit_except GET POST DELETE { deny all; }\n          proxy_request_buffering off;\n          proxy_read_timeout 600s;\n          proxy_pass http://127.0.0.1:8001;\n        }\n        location / {\n          limit_except GET { deny all; }\n          proxy_read_timeout 600s;\n          proxy_pass http://127.0.0.1:8001;\n        }\n      }\n      server {\n        listen 127.0.0.1:8003;\n        location / { return 403; }\n      }\n    }\n\n---\n# Source: bartl-restic/templates/service.yaml\napiVersion: v1\nkind: Service\nmetadata:\n  name: backup-restic\nspec:\n  selector:\n    app.kubernetes.io/name: backup-restic\n  ports:\n    - name: https\n      port: 443\n      targetPort: https\n\n---\n# Source: bartl-restic/templates/deployment.yaml\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: backup-restic\nspec:\n  replicas: 1\n  strategy:\n    type: Recreate\n  selector:\n    matchLabels:\n      app.kubernetes.io/name: backup-restic\n  template:\n    metadata:\n      labels:\n        app.kubernetes.io/name: backup-restic\n      annotations:\n        checksum/config: f93590481ab4f887d6890b521b10691d7b194d4edfe70963ae3ae71a8a21921e\n    spec:\n      automountServiceAccountToken: false\n      initContainers:\n        - name: require-initialized-repositories\n          image: docker.io/library/nginx:1.28.0\n          command: [/bin/sh, -ec]\n          args:\n            - |\n              test -s /data/keycloak/config || { echo 'Repository keycloak is missing its config; initialize it explicitly before deployment' >&2; exit 1; }\n              for directory in data index keys locks snapshots; do\n                test -d /data/keycloak/\"$directory\" || { echo \"Repository keycloak is missing $directory\" >&2; exit 1; }\n              done\n              test -s /data/other/config || { echo 'Repository other is missing its config; initialize it explicitly before deployment' >&2; exit 1; }\n              for directory in data index keys locks snapshots; do\n                test -d /data/other/\"$directory\" || { echo \"Repository other is missing $directory\" >&2; exit 1; }\n              done\n          volumeMounts:\n            - name: data\n              mountPath: /data\n              readOnly: true\n      containers:\n        - name: writer\n          image: docker.io/restic/rest-server@sha256:d2aff06f47eb38637dff580c3e6bce4af98f386c396a25d32eb6727ec96214a5\n          command: [rest-server]\n          args: [--path, /data, --listen, '127.0.0.1:8000', --no-auth, --append-only]\n          volumeMounts:\n            - name: data\n              mountPath: /data\n        - name: repository\n          image: docker.io/restic/rest-server@sha256:d2aff06f47eb38637dff580c3e6bce4af98f386c396a25d32eb6727ec96214a5\n          command: [rest-server]\n          args: [--path, /data, --listen, '127.0.0.1:8001', --no-auth]\n          volumeMounts:\n            - name: data\n              mountPath: /data\n        - name: https\n          image: docker.io/library/nginx:1.28.0\n          ports:\n            - name: https\n              containerPort: 8443\n          readinessProbe:\n            tcpSocket:\n              port: https\n          volumeMounts:\n            - name: nginx\n              mountPath: /etc/nginx/nginx.conf\n              subPath: nginx.conf\n              readOnly: true\n            - name: tls\n              mountPath: /tls\n              readOnly: true\n            - name: auth-keycloak\n              mountPath: /auth/keycloak\n              readOnly: true\n            - name: auth-other\n              mountPath: /auth/other\n              readOnly: true\n      volumes:\n        - name: data\n          persistentVolumeClaim:\n            claimName: \"repository\"\n        - name: nginx\n          configMap:\n            name: backup-restic\n        - name: tls\n          secret:\n            secretName: \"repository-tls\"\n        - name: auth-keycloak\n          secret:\n            secretName: \"keycloak-auth\"\n            items:\n              - key: htpasswd\n                path: htpasswd\n        - name: auth-other\n          secret:\n            secretName: \"other-auth\"\n            items:\n              - key: htpasswd\n                path: htpasswd\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "tar",
+        "-xzf",
+        "$LAB/nginx.tar.gz",
+        "-C",
+        "$LAB"
+      ],
+      "code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "bzip2",
+        "-d",
+        "$LAB/restic.bz2"
+      ],
+      "code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "$LAB/restic",
+        "-r",
+        "$LAB/data/keycloak",
+        "init"
+      ],
+      "code": 0,
+      "stdout": "created restic repository 657531e4ba at $LAB/data/keycloak\n\nPlease note that knowledge of your password is required to access\nthe repository. Losing your password means that your data is\nirrecoverably lost.\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "$LAB/restic",
+        "-r",
+        "$LAB/data/other",
+        "init"
+      ],
+      "code": 0,
+      "stdout": "created restic repository af0ac08412 at $LAB/data/other\n\nPlease note that knowledge of your password is required to access\nthe repository. Losing your password means that your data is\nirrecoverably lost.\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "/bin/sh",
+        "-ec",
+        "test -s $LAB/data/keycloak/config || { echo 'Repository keycloak is missing its config; initialize it explicitly before deployment' >&2; exit 1; }\nfor directory in data index keys locks snapshots; do\n  test -d $LAB/data/keycloak/\"$directory\" || { echo \"Repository keycloak is missing $directory\" >&2; exit 1; }\ndone\ntest -s $LAB/data/other/config || { echo 'Repository other is missing its config; initialize it explicitly before deployment' >&2; exit 1; }\nfor directory in data index keys locks snapshots; do\n  test -d $LAB/data/other/\"$directory\" || { echo \"Repository other is missing $directory\" >&2; exit 1; }\ndone\n"
+      ],
+      "code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "$LAB/nginx-1.28.0/objs/nginx",
+        "-p",
+        "$LAB/",
+        "-c",
+        "$LAB/nginx.conf",
+        "-s",
+        "reload"
+      ],
+      "code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "$LAB/restic",
+        "--no-cache",
+        "backup",
+        "capture"
+      ],
+      "code": 0,
+      "stdout": "no parent snapshot found, will read all files\n\nFiles:           1 new,     0 changed,     0 unmodified\nDirs:            1 new,     0 changed,     0 unmodified\nAdded to the repository: 16.001 MiB (16.002 MiB stored)\n\nprocessed 1 files, 16.000 MiB in 0:01\nsnapshot 59c757ec saved\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "$LAB/restic",
+        "--no-cache",
+        "snapshots",
+        "--json"
+      ],
+      "code": 0,
+      "stdout": "[{\"time\":\"2026-11-02T16:45:58.040177+01:00\",\"tree\":\"bae3008bd96a79b75456c874ed7f2aa0179fa9b251011319d3158d84105fa11a\",\"paths\":[\"/private$LAB/capture\"],\"hostname\":\"fkecl2.fritz.box\",\"username\":\"fke\",\"uid\":502,\"gid\":20,\"program_version\":\"restic 0.19.1\",\"summary\":{\"backup_start\":\"2026-11-02T16:45:58.040177+01:00\",\"backup_end\":\"2026-11-02T16:45:59.181484+01:00\",\"files_new\":1,\"files_changed\":0,\"files_unmodified\":0,\"dirs_new\":1,\"dirs_changed\":0,\"dirs_unmodified\":0,\"data_blobs\":8,\"tree_blobs\":2,\"data_added\":16778614,\"data_added_packed\":16779286,\"total_files_processed\":1,\"total_bytes_processed\":16777216},\"id\":\"59c757ec5adcb9e8b88934d61234d1163cf216c1807cdf009a17e04ceda2e609\",\"short_id\":\"59c757ec\"}]\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "$LAB/restic",
+        "--no-cache",
+        "cat",
+        "config"
+      ],
+      "code": 0,
+      "stdout": "{\n  \"version\": 2,\n  \"id\": \"657531e4ba05143f81618425d06beb10bad0e28064bf045c7f50f60433014e5d\",\n  \"chunker_polynomial\": \"3477ee2237d939\"\n}\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "$LAB/restic",
+        "--no-cache",
+        "restore",
+        "59c757ec5adcb9e8b88934d61234d1163cf216c1807cdf009a17e04ceda2e609",
+        "--target",
+        "restored"
+      ],
+      "code": 0,
+      "stdout": "restoring snapshot 59c757ec of [/private$LAB/capture] at 2026-11-02 16:45:58.040177 +0100 CET by fke@fkecl2.fritz.box to restored\nSummary: Restored 2 files/dirs (16.000 MiB) in 0:00\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "$LAB/restic",
+        "--no-cache",
+        "forget",
+        "--prune",
+        "59c757ec5adcb9e8b88934d61234d1163cf216c1807cdf009a17e04ceda2e609"
+      ],
+      "code": 11,
+      "stdout": "repo already locked, waiting up to 0s for the lock\n",
+      "stderr": "unable to create lock in backend: repository is already locked by PID 16189 on fkecl2.fritz.box by fke (UID 502, GID 20)\nlock was created at 2026-11-02 16:46:39 (613.074ms ago)\nstorage ID f4c1eeca\nthe `unlock` command can be used to remove stale locks\n"
+    },
+    {
+      "role": "reader",
+      "args": [
+        "--limit-download",
+        "1024",
+        "restore",
+        "59c757ec5adcb9e8b88934d61234d1163cf216c1807cdf009a17e04ceda2e609",
+        "--target",
+        "restore-held"
+      ],
+      "code": 0,
+      "stdout": "restoring snapshot 59c757ec of [/private$LAB/capture] at 2026-11-02 16:45:58.040177 +0100 CET by fke@fkecl2.fritz.box to restore-held\nSummary: Restored 2 files/dirs (16.000 MiB) in 0:15\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "$LAB/restic",
+        "--no-cache",
+        "restore",
+        "59c757ec5adcb9e8b88934d61234d1163cf216c1807cdf009a17e04ceda2e609",
+        "--target",
+        "restore-refused"
+      ],
+      "code": 11,
+      "stdout": "repo already locked, waiting up to 0s for the lock\n",
+      "stderr": "unable to create lock in backend: repository is already locked exclusively by PID 16213 on fkecl2.fritz.box by fke (UID 502, GID 20)\nlock was created at 2026-11-02 16:46:54 (538.114ms ago)\nstorage ID 2d96d6d6\nthe `unlock` command can be used to remove stale locks\n"
+    },
+    {
+      "argv": [
+        "$LAB/restic",
+        "--no-cache",
+        "backup",
+        "capture"
+      ],
+      "code": 11,
+      "stdout": "repo already locked, waiting up to 0s for the lock\n",
+      "stderr": "unable to create lock in backend: repository is already locked exclusively by PID 16213 on fkecl2.fritz.box by fke (UID 502, GID 20)\nlock was created at 2026-11-02 16:46:54 (1.028458s ago)\nstorage ID 2d96d6d6\nthe `unlock` command can be used to remove stale locks\n"
+    },
+    {
+      "role": "admin",
+      "args": [
+        "--limit-download",
+        "1024",
+        "check",
+        "--read-data"
+      ],
+      "code": 0,
+      "stdout": "create exclusive lock for repository\nload indexes\ncheck all packs\ncheck snapshots, trees and blobs\n[0:00] 100.00%  1 / 1 snapshots\nread all data\n[0:15] 100.00%  3 / 3 packs\nno errors were found\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "curl",
+        "--silent",
+        "--show-error",
+        "--path-as-is",
+        "--cacert",
+        "$LAB/tls.crt",
+        "-K",
+        "-",
+        "-X",
+        "DELETE",
+        "-o",
+        "/dev/null",
+        "-w",
+        "%{http_code}",
+        "https://127.0.0.1:18443/keycloak/locks/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/../../config"
+      ],
+      "code": 0,
+      "stdout": "403",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "curl",
+        "--silent",
+        "--show-error",
+        "--path-as-is",
+        "--cacert",
+        "$LAB/tls.crt",
+        "-K",
+        "-",
+        "-X",
+        "DELETE",
+        "-o",
+        "/dev/null",
+        "-w",
+        "%{http_code}",
+        "https://127.0.0.1:18443/keycloak/locks/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa%2f..%2f..%2fconfig"
+      ],
+      "code": 0,
+      "stdout": "403",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "curl",
+        "--silent",
+        "--show-error",
+        "--path-as-is",
+        "--cacert",
+        "$LAB/tls.crt",
+        "-K",
+        "-",
+        "-X",
+        "DELETE",
+        "-o",
+        "/dev/null",
+        "-w",
+        "%{http_code}",
+        "https://127.0.0.1:18443/keycloak/locks/%252e%252e%252fconfig"
+      ],
+      "code": 0,
+      "stdout": "403",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "curl",
+        "--silent",
+        "--show-error",
+        "--path-as-is",
+        "--cacert",
+        "$LAB/tls.crt",
+        "-K",
+        "-",
+        "-X",
+        "DELETE",
+        "-o",
+        "/dev/null",
+        "-w",
+        "%{http_code}",
+        "https://127.0.0.1:18443/keycloak/locks/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/"
+      ],
+      "code": 0,
+      "stdout": "403",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "curl",
+        "--silent",
+        "--show-error",
+        "--path-as-is",
+        "--cacert",
+        "$LAB/tls.crt",
+        "-K",
+        "-",
+        "-X",
+        "DELETE",
+        "-o",
+        "/dev/null",
+        "-w",
+        "%{http_code}",
+        "https://127.0.0.1:18443/keycloak/locks/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      ],
+      "code": 0,
+      "stdout": "404",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "curl",
+        "--silent",
+        "--show-error",
+        "--path-as-is",
+        "--cacert",
+        "$LAB/tls.crt",
+        "-K",
+        "-",
+        "-o",
+        "/dev/null",
+        "-w",
+        "%{http_code}",
+        "https://127.0.0.1:18443/keycloak/../other/config"
+      ],
+      "code": 0,
+      "stdout": "401",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "curl",
+        "--silent",
+        "--show-error",
+        "--path-as-is",
+        "--cacert",
+        "$LAB/tls.crt",
+        "-K",
+        "-",
+        "-o",
+        "/dev/null",
+        "-w",
+        "%{http_code}",
+        "https://127.0.0.1:18443/keycloak/%2e%2e/other/config"
+      ],
+      "code": 0,
+      "stdout": "401",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "curl",
+        "--silent",
+        "--show-error",
+        "--path-as-is",
+        "--cacert",
+        "$LAB/tls.crt",
+        "-K",
+        "-",
+        "-o",
+        "/dev/null",
+        "-w",
+        "%{http_code}",
+        "https://127.0.0.1:18443/keycloak/%252e%252e/other/config"
+      ],
+      "code": 0,
+      "stdout": "404",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "$LAB/restic",
+        "--no-cache",
+        "cat",
+        "config"
+      ],
+      "code": 0,
+      "stdout": "{\n  \"version\": 2,\n  \"id\": \"657531e4ba05143f81618425d06beb10bad0e28064bf045c7f50f60433014e5d\",\n  \"chunker_polynomial\": \"3477ee2237d939\"\n}\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "$LAB/restic",
+        "--no-cache",
+        "cat",
+        "config"
+      ],
+      "code": 0,
+      "stdout": "{\n  \"version\": 2,\n  \"id\": \"657531e4ba05143f81618425d06beb10bad0e28064bf045c7f50f60433014e5d\",\n  \"chunker_polynomial\": \"3477ee2237d939\"\n}\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "$LAB/restic",
+        "--no-cache",
+        "snapshots",
+        "--json"
+      ],
+      "code": 0,
+      "stdout": "[{\"time\":\"2026-11-02T16:45:58.040177+01:00\",\"tree\":\"bae3008bd96a79b75456c874ed7f2aa0179fa9b251011319d3158d84105fa11a\",\"paths\":[\"/private$LAB/capture\"],\"hostname\":\"fkecl2.fritz.box\",\"username\":\"fke\",\"uid\":502,\"gid\":20,\"program_version\":\"restic 0.19.1\",\"summary\":{\"backup_start\":\"2026-11-02T16:45:58.040177+01:00\",\"backup_end\":\"2026-11-02T16:45:59.181484+01:00\",\"files_new\":1,\"files_changed\":0,\"files_unmodified\":0,\"dirs_new\":1,\"dirs_changed\":0,\"dirs_unmodified\":0,\"data_blobs\":8,\"tree_blobs\":2,\"data_added\":16778614,\"data_added_packed\":16779286,\"total_files_processed\":1,\"total_bytes_processed\":16777216},\"id\":\"59c757ec5adcb9e8b88934d61234d1163cf216c1807cdf009a17e04ceda2e609\",\"short_id\":\"59c757ec\"}]\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "$LAB/restic",
+        "--no-cache",
+        "restore",
+        "59c757ec5adcb9e8b88934d61234d1163cf216c1807cdf009a17e04ceda2e609",
+        "--target",
+        "restored-replaced"
+      ],
+      "code": 0,
+      "stdout": "restoring snapshot 59c757ec of [/private$LAB/capture] at 2026-11-02 16:45:58.040177 +0100 CET by fke@fkecl2.fritz.box to restored-replaced\nSummary: Restored 2 files/dirs (16.000 MiB) in 0:00\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "helm",
+        "template",
+        "backup",
+        "./chart",
+        "-n",
+        "bartl-restic-smoke",
+        "-f",
+        "$LAB/values.json",
+        "--set",
+        "repositories[1].name=missing"
+      ],
+      "code": 0,
+      "stdout": "---\n# Source: bartl-restic/templates/service.yaml\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: backup-restic\nspec:\n  podSelector:\n    matchLabels:\n      app.kubernetes.io/name: backup-restic\n  policyTypes: [Ingress]\n  ingress:\n    - ports:\n        - protocol: TCP\n          port: 8443\n\n---\n# Source: bartl-restic/templates/configmap.yaml\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: backup-restic\ndata:\n  nginx.conf: |\n    pid /tmp/nginx.pid;\n    events {}\n    http {\n      access_log off;\n      server_tokens off;\n      client_body_temp_path /tmp/client-body;\n      proxy_temp_path /tmp/proxy;\n      map $remote_user $repository_backend {\n        default http://127.0.0.1:8003;\n        reader http://127.0.0.1:8002;\n        writer http://127.0.0.1:8000;\n        admin http://127.0.0.1:8001;\n      }\n      server {\n        listen 8443 ssl;\n        ssl_protocols TLSv1.2 TLSv1.3;\n        ssl_certificate /tls/tls.crt;\n        ssl_certificate_key /tls/tls.key;\n        client_max_body_size 0;\n        location / { return 404; }\n        location /keycloak/ {\n          auth_basic \"Restic keycloak\";\n          auth_basic_user_file /auth/keycloak/htpasswd;\n          proxy_request_buffering off;\n          proxy_read_timeout 600s;\n          proxy_pass $repository_backend;\n        }\n        location /missing/ {\n          auth_basic \"Restic missing\";\n          auth_basic_user_file /auth/missing/htpasswd;\n          proxy_request_buffering off;\n          proxy_read_timeout 600s;\n          proxy_pass $repository_backend;\n        }\n      }\n      # This listener is reachable only inside the Pod. Data remains read-only\n      # for readers, but Restic may create/remove its native lock objects.\n      server {\n        listen 127.0.0.1:8002;\n        client_max_body_size 0;\n        location ~ \"^/keycloak/locks/[a-f0-9]{64}$\" {\n          limit_except GET POST DELETE { deny all; }\n          proxy_request_buffering off;\n          proxy_read_timeout 600s;\n          proxy_pass http://127.0.0.1:8001;\n        }\n        location ~ \"^/missing/locks/[a-f0-9]{64}$\" {\n          limit_except GET POST DELETE { deny all; }\n          proxy_request_buffering off;\n          proxy_read_timeout 600s;\n          proxy_pass http://127.0.0.1:8001;\n        }\n        location / {\n          limit_except GET { deny all; }\n          proxy_read_timeout 600s;\n          proxy_pass http://127.0.0.1:8001;\n        }\n      }\n      server {\n        listen 127.0.0.1:8003;\n        location / { return 403; }\n      }\n    }\n\n---\n# Source: bartl-restic/templates/service.yaml\napiVersion: v1\nkind: Service\nmetadata:\n  name: backup-restic\nspec:\n  selector:\n    app.kubernetes.io/name: backup-restic\n  ports:\n    - name: https\n      port: 443\n      targetPort: https\n\n---\n# Source: bartl-restic/templates/deployment.yaml\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: backup-restic\nspec:\n  replicas: 1\n  strategy:\n    type: Recreate\n  selector:\n    matchLabels:\n      app.kubernetes.io/name: backup-restic\n  template:\n    metadata:\n      labels:\n        app.kubernetes.io/name: backup-restic\n      annotations:\n        checksum/config: 9a4d8bf9ef3cf74999abf3c4a6d8ffdd00b99938f971f11d9172d7cc2d0edef0\n    spec:\n      automountServiceAccountToken: false\n      initContainers:\n        - name: require-initialized-repositories\n          image: docker.io/library/nginx:1.28.0\n          command: [/bin/sh, -ec]\n          args:\n            - |\n              test -s /data/keycloak/config || { echo 'Repository keycloak is missing its config; initialize it explicitly before deployment' >&2; exit 1; }\n              for directory in data index keys locks snapshots; do\n                test -d /data/keycloak/\"$directory\" || { echo \"Repository keycloak is missing $directory\" >&2; exit 1; }\n              done\n              test -s /data/missing/config || { echo 'Repository missing is missing its config; initialize it explicitly before deployment' >&2; exit 1; }\n              for directory in data index keys locks snapshots; do\n                test -d /data/missing/\"$directory\" || { echo \"Repository missing is missing $directory\" >&2; exit 1; }\n              done\n          volumeMounts:\n            - name: data\n              mountPath: /data\n              readOnly: true\n      containers:\n        - name: writer\n          image: docker.io/restic/rest-server@sha256:d2aff06f47eb38637dff580c3e6bce4af98f386c396a25d32eb6727ec96214a5\n          command: [rest-server]\n          args: [--path, /data, --listen, '127.0.0.1:8000', --no-auth, --append-only]\n          volumeMounts:\n            - name: data\n              mountPath: /data\n        - name: repository\n          image: docker.io/restic/rest-server@sha256:d2aff06f47eb38637dff580c3e6bce4af98f386c396a25d32eb6727ec96214a5\n          command: [rest-server]\n          args: [--path, /data, --listen, '127.0.0.1:8001', --no-auth]\n          volumeMounts:\n            - name: data\n              mountPath: /data\n        - name: https\n          image: docker.io/library/nginx:1.28.0\n          ports:\n            - name: https\n              containerPort: 8443\n          readinessProbe:\n            tcpSocket:\n              port: https\n          volumeMounts:\n            - name: nginx\n              mountPath: /etc/nginx/nginx.conf\n              subPath: nginx.conf\n              readOnly: true\n            - name: tls\n              mountPath: /tls\n              readOnly: true\n            - name: auth-keycloak\n              mountPath: /auth/keycloak\n              readOnly: true\n            - name: auth-missing\n              mountPath: /auth/missing\n              readOnly: true\n      volumes:\n        - name: data\n          persistentVolumeClaim:\n            claimName: \"repository\"\n        - name: nginx\n          configMap:\n            name: backup-restic\n        - name: tls\n          secret:\n            secretName: \"repository-tls\"\n        - name: auth-keycloak\n          secret:\n            secretName: \"keycloak-auth\"\n            items:\n              - key: htpasswd\n                path: htpasswd\n        - name: auth-missing\n          secret:\n            secretName: \"other-auth\"\n            items:\n              - key: htpasswd\n                path: htpasswd\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "/bin/sh",
+        "-ec",
+        "test -s $LAB/data/keycloak/config || { echo 'Repository keycloak is missing its config; initialize it explicitly before deployment' >&2; exit 1; }\nfor directory in data index keys locks snapshots; do\n  test -d $LAB/data/keycloak/\"$directory\" || { echo \"Repository keycloak is missing $directory\" >&2; exit 1; }\ndone\ntest -s $LAB/data/missing/config || { echo 'Repository missing is missing its config; initialize it explicitly before deployment' >&2; exit 1; }\nfor directory in data index keys locks snapshots; do\n  test -d $LAB/data/missing/\"$directory\" || { echo \"Repository missing is missing $directory\" >&2; exit 1; }\ndone\n"
+      ],
+      "code": 1,
+      "stdout": "",
+      "stderr": "Repository missing is missing its config; initialize it explicitly before deployment\n"
+    },
+    {
+      "argv": [
+        "helm",
+        "template",
+        "backup",
+        "./chart",
+        "-f",
+        "$LAB/values.json",
+        "--set",
+        "repositories[1].name=invalid-"
+      ],
+      "code": 1,
+      "stdout": "",
+      "stderr": "Error: values don't meet the specifications of the schema(s) in the following chart(s):\nbartl-restic:\n- at '/repositories/1/name': 'invalid-' does not match pattern '^[a-z0-9]([a-z0-9-]{0,56}[a-z0-9])?$'\n\n"
+    },
+    {
+      "argv": [
+        "helm",
+        "template",
+        "backup",
+        "./chart",
+        "-n",
+        "bartl-restic-smoke",
+        "-f",
+        "$LAB/values.json",
+        "--set",
+        "maintenance.enabled=true",
+        "--set",
+        "maintenance.name=check-proof",
+        "--set",
+        "maintenance.repository=keycloak",
+        "--set",
+        "maintenance.action=check",
+        "--set",
+        "maintenance.host=backup-restic.bartl-restic-smoke.svc",
+        "--set",
+        "maintenance.credentialsSecret=admin-secret",
+        "--set-string",
+        "maintenance.snapshot=",
+        "--show-only",
+        "templates/maintenance.yaml"
+      ],
+      "code": 0,
+      "stdout": "---\n# Source: bartl-restic/templates/maintenance.yaml\napiVersion: batch/v1\nkind: Job\nmetadata:\n  name: backup-restic-check-proof\nspec:\n  backoffLimit: 0\n  template:\n    spec:\n      automountServiceAccountToken: false\n      restartPolicy: Never\n      containers:\n        - name: restic\n          image: docker.io/restic/restic:0.19.1\n          command: [/bin/sh, -ec]\n          args:\n            - |\n              test \"$RESTIC_REST_USERNAME\" = admin || { echo 'Maintenance requires the separate admin account' >&2; exit 1; }\n              exec restic --cacert /credentials/ca.crt check --read-data\n          env:\n            - name: RESTIC_REPOSITORY\n              value: \"rest:https://backup-restic.bartl-restic-smoke.svc/keycloak/\"\n            - name: RESTIC_PASSWORD_FILE\n              value: /credentials/password\n            - name: RESTIC_REST_USERNAME\n              valueFrom:\n                secretKeyRef:\n                  name: \"admin-secret\"\n                  key: username\n            - name: RESTIC_REST_PASSWORD\n              valueFrom:\n                secretKeyRef:\n                  name: \"admin-secret\"\n                  key: restPassword\n          volumeMounts:\n            - name: credentials\n              mountPath: /credentials\n              readOnly: true\n      volumes:\n        - name: credentials\n          secret:\n            secretName: \"admin-secret\"\n            items:\n              - key: password\n                path: password\n              - key: ca.crt\n                path: ca.crt\n\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "/bin/sh",
+        "-ec",
+        "test \"$RESTIC_REST_USERNAME\" = admin || { echo 'Maintenance requires the separate admin account' >&2; exit 1; }\nexec restic --cacert $LAB/tls.crt check --read-data\n"
+      ],
+      "code": 0,
+      "stdout": "using temporary cache in /var/folders/tq/dpt94tts3ss61gw899q6v0_80000gp/T/restic-check-cache-1333449197\ncreate exclusive lock for repository\nload indexes\ncheck all packs\ncheck snapshots, trees and blobs\n[0:00] 100.00%  1 / 1 snapshots\nread all data\n[0:00] 100.00%  3 / 3 packs\nno errors were found\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "helm",
+        "template",
+        "backup",
+        "./chart",
+        "-n",
+        "bartl-restic-smoke",
+        "-f",
+        "$LAB/values.json",
+        "--set",
+        "maintenance.enabled=true",
+        "--set",
+        "maintenance.name=delete-proof",
+        "--set",
+        "maintenance.repository=keycloak",
+        "--set",
+        "maintenance.action=forget-prune",
+        "--set",
+        "maintenance.host=backup-restic.bartl-restic-smoke.svc",
+        "--set",
+        "maintenance.credentialsSecret=admin-secret",
+        "--set-string",
+        "maintenance.snapshot=59c757ec5adcb9e8b88934d61234d1163cf216c1807cdf009a17e04ceda2e609",
+        "--show-only",
+        "templates/maintenance.yaml"
+      ],
+      "code": 0,
+      "stdout": "---\n# Source: bartl-restic/templates/maintenance.yaml\napiVersion: batch/v1\nkind: Job\nmetadata:\n  name: backup-restic-delete-proof\nspec:\n  backoffLimit: 0\n  template:\n    spec:\n      automountServiceAccountToken: false\n      restartPolicy: Never\n      containers:\n        - name: restic\n          image: docker.io/restic/restic:0.19.1\n          command: [/bin/sh, -ec]\n          args:\n            - |\n              test \"$RESTIC_REST_USERNAME\" = admin || { echo 'Maintenance requires the separate admin account' >&2; exit 1; }\n              exec restic --cacert /credentials/ca.crt forget --prune \"59c757ec5adcb9e8b88934d61234d1163cf216c1807cdf009a17e04ceda2e609\"\n          env:\n            - name: RESTIC_REPOSITORY\n              value: \"rest:https://backup-restic.bartl-restic-smoke.svc/keycloak/\"\n            - name: RESTIC_PASSWORD_FILE\n              value: /credentials/password\n            - name: RESTIC_REST_USERNAME\n              valueFrom:\n                secretKeyRef:\n                  name: \"admin-secret\"\n                  key: username\n            - name: RESTIC_REST_PASSWORD\n              valueFrom:\n                secretKeyRef:\n                  name: \"admin-secret\"\n                  key: restPassword\n          volumeMounts:\n            - name: credentials\n              mountPath: /credentials\n              readOnly: true\n      volumes:\n        - name: credentials\n          secret:\n            secretName: \"admin-secret\"\n            items:\n              - key: password\n                path: password\n              - key: ca.crt\n                path: ca.crt\n\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "/bin/sh",
+        "-ec",
+        "test \"$RESTIC_REST_USERNAME\" = admin || { echo 'Maintenance requires the separate admin account' >&2; exit 1; }\nexec restic --cacert $LAB/tls.crt forget --prune \"59c757ec5adcb9e8b88934d61234d1163cf216c1807cdf009a17e04ceda2e609\"\n"
+      ],
+      "code": 1,
+      "stdout": "",
+      "stderr": "unable to open cache: mkdir /Users/fke/Library/Caches/restic: operation not permitted\nmkdir /Users/fke/Library/Caches/restic: operation not permitted\ngithub.com/restic/restic/internal/backend/cache.New\n\t/restic/internal/backend/cache/cache.go:89\ngithub.com/restic/restic/internal/global.setupCache\n\t/restic/internal/global/global.go:423\ngithub.com/restic/restic/internal/global.OpenRepository\n\t/restic/internal/global/global.go:333\nmain.internalOpenWithLocked\n\t/restic/cmd/restic/lock.go:12\nmain.openWithExclusiveLock\n\t/restic/cmd/restic/lock.go:51\nmain.runForget\n\t/restic/cmd/restic/cmd_forget.go:193\nmain.newForgetCommand.func1\n\t/restic/cmd/restic/cmd_forget.go:55\ngithub.com/spf13/cobra.(*Command).execute\n\t/home/build/go/pkg/mod/github.com/spf13/cobra@v1.10.2/command.go:1015\ngithub.com/spf13/cobra.(*Command).ExecuteC\n\t/home/build/go/pkg/mod/github.com/spf13/cobra@v1.10.2/command.go:1148\ngithub.com/spf13/cobra.(*Command).Execute\n\t/home/build/go/pkg/mod/github.com/spf13/cobra@v1.10.2/command.go:1071\ngithub.com/spf13/cobra.(*Command).ExecuteContext\n\t/home/build/go/pkg/mod/github.com/spf13/cobra@v1.10.2/command.go:1064\nmain.main.func2\n\t/restic/cmd/restic/main.go:189\nmain.main\n\t/restic/cmd/restic/main.go:197\nruntime.main\n\t/usr/local/go/src/runtime/proc.go:290\nruntime.goexit\n\t/usr/local/go/src/runtime/asm_amd64.s:1771\n"
+    },
+    {
+      "argv": [
+        "/bin/sh",
+        "-ec",
+        "test \"$RESTIC_REST_USERNAME\" = admin || { echo 'Maintenance requires the separate admin account' >&2; exit 1; }\nexec restic --cacert $LAB/tls.crt forget --prune \"59c757ec5adcb9e8b88934d61234d1163cf216c1807cdf009a17e04ceda2e609\"\n"
+      ],
+      "code": 0,
+      "stdout": "[0:00] 100.00%  1 / 1 files deleted\n1 snapshots have been removed, running prune\nloading all snapshots...\nfinding data that is still in use for 0 snapshots\n[0:00]          0 snapshots\nsearching used packs...\ncollecting packs for deletion and repacking\n[0:00] 100.00%  3 / 3 packs processed\n\nto repack:             0 blobs / 0 B\nthis removes:          0 blobs / 0 B\nto delete:            10 blobs / 16.002 MiB\ntotal prune:          10 blobs / 16.002 MiB\nremaining:             0 blobs / 0 B\nunused size after prune: 0 B ( of remaining size)\n\nrebuilding index\n[0:00] 100.00%  1 / 1 indexes processed\n[0:00] 100.00%  1 / 1 old indexes deleted\nremoving 3 old packs\n[0:00] 100.00%  3 / 3 files deleted\ndone\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "$LAB/restic",
+        "--no-cache",
+        "snapshots",
+        "--json"
+      ],
+      "code": 0,
+      "stdout": "[]\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "$LAB/restic",
+        "--no-cache",
+        "cat",
+        "config"
+      ],
+      "code": 0,
+      "stdout": "{\n  \"version\": 2,\n  \"id\": \"657531e4ba05143f81618425d06beb10bad0e28064bf045c7f50f60433014e5d\",\n  \"chunker_polynomial\": \"3477ee2237d939\"\n}\n",
+      "stderr": ""
+    }
+  ]
+}

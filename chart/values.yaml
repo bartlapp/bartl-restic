@@ -1,0 +1,23 @@
+# Existing claim; this chart never creates or deletes repository storage.
+existingClaim: ""
+# Existing kubernetes.io/tls Secret with tls.crt and tls.key.
+tlsSecret: ""
+# Every directory must already contain a Restic config and repository directories.
+# Each Secret contains htpasswd with only reader, writer and admin accounts.
+repositories: []
+# - name: keycloak
+#   authSecret: keycloak-repository-auth
+
+# Optional one-shot operator-selected maintenance, not scheduled retention.
+# Use a unique name for each invocation; Jobs are immutable.
+maintenance:
+  enabled: false
+  name: maintenance
+  repository: ""
+  # check or forget-prune. forget-prune requires a full 64-character snapshot ID.
+  action: check
+  snapshot: ""
+  # HTTPS DNS name covered by tlsSecret; reachable from the maintenance Pod.
+  host: ""
+  # Existing Secret: username (admin), restPassword, password, ca.crt.
+  credentialsSecret: ""

@@ -1,0 +1,58 @@
+{{- if .Values.maintenance.enabled -}}
+{{- $maintenance := .Values.maintenance -}}
+{{- $found := false -}}
+{{- range .Values.repositories -}}
+{{- if eq .name $maintenance.repository -}}{{- $found = true -}}{{- end -}}
+{{- end -}}
+{{- if not $found -}}{{- fail "maintenance.repository must name a declared repository" -}}{{- end -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "bartl-restic.name" . }}-{{ $maintenance.name }}
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      containers:
+        - name: restic
+          image: docker.io/restic/restic:0.19.1
+          command: [/bin/sh, -ec]
+          args:
+            - |
+              test "$RESTIC_REST_USERNAME" = admin || { echo 'Maintenance requires the separate admin account' >&2; exit 1; }
+              {{- if eq $maintenance.action "check" }}
+              exec restic --cacert /credentials/ca.crt check --read-data
+              {{- else }}
+              exec restic --cacert /credentials/ca.crt forget --prune {{ $maintenance.snapshot | quote }}
+              {{- end }}
+          env:
+            - name: RESTIC_REPOSITORY
+              value: {{ printf "rest:https://%s/%s/" $maintenance.host $maintenance.repository | quote }}
+            - name: RESTIC_PASSWORD_FILE
+              value: /credentials/password
+            - name: RESTIC_REST_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $maintenance.credentialsSecret | quote }}
+                  key: username
+            - name: RESTIC_REST_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $maintenance.credentialsSecret | quote }}
+                  key: restPassword
+          volumeMounts:
+            - name: credentials
+              mountPath: /credentials
+              readOnly: true
+      volumes:
+        - name: credentials
+          secret:
+            secretName: {{ $maintenance.credentialsSecret | quote }}
+            items:
+              - key: password
+                path: password
+              - key: ca.crt
+                path: ca.crt
+{{- end }}

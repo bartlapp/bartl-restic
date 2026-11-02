@@ -1,0 +1,65 @@
+{{- $names := dict -}}
+{{- range .Values.repositories -}}
+{{- if hasKey $names .name -}}{{- fail (printf "duplicate repository %s" .name) -}}{{- end -}}
+{{- $_ := set $names .name true -}}
+{{- end -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "bartl-restic.name" . }}
+data:
+  nginx.conf: |
+    pid /tmp/nginx.pid;
+    events {}
+    http {
+      access_log off;
+      server_tokens off;
+      client_body_temp_path /tmp/client-body;
+      proxy_temp_path /tmp/proxy;
+      map $remote_user $repository_backend {
+        default http://127.0.0.1:8003;
+        reader http://127.0.0.1:8002;
+        writer http://127.0.0.1:8000;
+        admin http://127.0.0.1:8001;
+      }
+      server {
+        listen 8443 ssl;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_certificate /tls/tls.crt;
+        ssl_certificate_key /tls/tls.key;
+        client_max_body_size 0;
+        location / { return 404; }
+        {{- range .Values.repositories }}
+        location /{{ .name }}/ {
+          auth_basic "Restic {{ .name }}";
+          auth_basic_user_file /auth/{{ .name }}/htpasswd;
+          proxy_request_buffering off;
+          proxy_read_timeout 600s;
+          proxy_pass $repository_backend;
+        }
+        {{- end }}
+      }
+      # This listener is reachable only inside the Pod. Data remains read-only
+      # for readers, but Restic may create/remove its native lock objects.
+      server {
+        listen 127.0.0.1:8002;
+        client_max_body_size 0;
+        {{- range .Values.repositories }}
+        location ~ "^/{{ .name }}/locks/[a-f0-9]{64}$" {
+          limit_except GET POST DELETE { deny all; }
+          proxy_request_buffering off;
+          proxy_read_timeout 600s;
+          proxy_pass http://127.0.0.1:8001;
+        }
+        {{- end }}
+        location / {
+          limit_except GET { deny all; }
+          proxy_read_timeout 600s;
+          proxy_pass http://127.0.0.1:8001;
+        }
+      }
+      server {
+        listen 127.0.0.1:8003;
+        location / { return 403; }
+      }
+    }
