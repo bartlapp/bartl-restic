@@ -1,5 +1,5 @@
-# Combined controller and native worker image built from this package.
-image: ""
+# Published 0.2.0 controller and native worker, linux/amd64.
+image: ghcr.io/bartlapp/bartl-restic-controller@sha256:3bbc370143d7d6363522643bb9c1f71b634176512696040669b5a3168a086446
 application:
   replicas: 1
 # Existing claim; this chart never creates or deletes repository storage.
