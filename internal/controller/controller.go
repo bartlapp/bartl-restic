@@ -63,7 +63,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if err := r.Get(ctx, req.NamespacedName, a); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	if a.Spec.Replicas == 1 && !contains(a.Finalizers, finalizer) && a.DeletionTimestamp.IsZero() {
+	if !contains(a.Finalizers, finalizer) && a.DeletionTimestamp.IsZero() {
 		a.Finalizers = append(a.Finalizers, finalizer)
 		return again, r.Update(ctx, a)
 	}
@@ -84,21 +84,20 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		if !drained {
 			return again, r.status(ctx, a, "Stopping", "Waiting for owned workloads and required PVC users to terminate")
 		}
+		if !a.DeletionTimestamp.IsZero() {
+			if err := r.releaseClaim(ctx, a); err != nil {
+				return again, err
+			}
+			a.Finalizers = remove(a.Finalizers, finalizer)
+			return ctrl.Result{}, r.Update(ctx, a)
+		}
 		if a.Status.Operation != nil && a.Status.Operation.Result == "Succeeded" {
 			// A completed stop ends this admission. Offline changes must pass a
 			// fresh native observation before the endpoint can serve again.
 			a.Status.Operation = nil
 		}
-		if !a.DeletionTimestamp.IsZero() {
-			a.Finalizers = remove(a.Finalizers, finalizer)
-			return ctrl.Result{}, r.Update(ctx, a)
-		}
 		if err := r.status(ctx, a, "Stopped", "Stop intent is durable; required workload drainage is complete"); err != nil {
 			return again, err
-		}
-		if contains(a.Finalizers, finalizer) {
-			a.Finalizers = remove(a.Finalizers, finalizer)
-			return again, r.Update(ctx, a)
 		}
 		return again, nil
 	}
@@ -242,6 +241,37 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	}
 	return again, nil
 }
+
+// releaseClaim is only called after deletion drainage. An ordinary stop retains
+// both the claim fence and finalizer; failed native work retains its fence even
+// when the application itself can be deleted.
+func (r *Reconciler) releaseClaim(ctx context.Context, a *api.ResticApplication) error {
+	current := new(api.ResticApplication)
+	if err := r.Get(ctx, client.ObjectKeyFromObject(a), current); err != nil {
+		return err
+	}
+	if current.UID != a.UID || current.Generation != a.Generation || current.ResourceVersion != a.ResourceVersion || current.DeletionTimestamp.IsZero() {
+		return fmt.Errorf("application changed after deletion drainage")
+	}
+	if a.Status.Operation != nil && a.Status.Operation.Result != "Succeeded" {
+		return nil
+	}
+	pvc := new(corev1.PersistentVolumeClaim)
+	if err := r.Get(ctx, r.key(a.Spec.ExistingClaim), pvc); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	if pvc.Annotations[claimOwner] != string(a.UID) {
+		// Also covers a restart after release and a new application acquiring it.
+		return nil
+	}
+	if op := a.Status.Operation; op != nil && op.PVCUID != string(pvc.UID) {
+		return fmt.Errorf("claim UID changed after lifecycle admission")
+	}
+	delete(pvc.Annotations, claimOwner)
+	// Update carries the observed resourceVersion: never erase a concurrent owner.
+	return r.Update(ctx, pvc)
+}
+
 func (r *Reconciler) blocked(ctx context.Context, a *api.ResticApplication, reason string) error {
 	if a.Status.Operation != nil && a.Status.Operation.Result == "Running" {
 		return r.fail(ctx, a, reason)
@@ -383,9 +413,21 @@ func (r *Reconciler) drain(ctx context.Context, a *api.ResticApplication) (bool,
 		if owned {
 			ownedJobs[j.UID] = true
 		}
-		if owned && j.Status.Succeeded == 0 && j.Status.Failed == 0 && j.DeletionTimestamp == nil {
-			if err := r.Delete(ctx, j, client.PropagationPolicy(metav1.DeletePropagationForeground)); err != nil && !apierrors.IsNotFound(err) {
-				return false, err
+		if owned {
+			terminal := false
+			for _, condition := range j.Status.Conditions {
+				if condition.Status == corev1.ConditionTrue && (condition.Type == batchv1.JobComplete || condition.Type == batchv1.JobFailed) {
+					terminal = true
+				}
+			}
+			if !terminal {
+				// A Job without Pods can still create one until deletion completes.
+				settled = false
+				if j.DeletionTimestamp == nil {
+					if err := r.Delete(ctx, j, client.PropagationPolicy(metav1.DeletePropagationForeground)); err != nil && !apierrors.IsNotFound(err) {
+						return false, err
+					}
+				}
 			}
 		}
 	}
