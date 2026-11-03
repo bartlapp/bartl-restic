@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bartl-restic
-description: Authenticated HTTPS Restic endpoint on an existing repository PVC
+description: Native Restic repository lifecycle, authenticated HTTPS and scheduled replication
 version: 0.2.0
-appVersion: "0.14.0"
+appVersion: "0.19.1"
 type: application

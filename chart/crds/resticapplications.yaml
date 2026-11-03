@@ -1,0 +1,120 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: resticapplications.restic.bartl.sh
+spec:
+  group: restic.bartl.sh
+  scope: Namespaced
+  names:
+    plural: resticapplications
+    singular: resticapplication
+    kind: ResticApplication
+    shortNames: [resticapp]
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: State
+          type: string
+          jsonPath: .status.state
+        - name: Intent
+          type: integer
+          jsonPath: .spec.replicas
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            apiVersion: {type: string}
+            kind: {type: string}
+            metadata: {type: object}
+            spec:
+              type: object
+              required: [replicas, existingClaim, tlsSecret, image, repositories]
+              x-kubernetes-validations:
+                - rule: self.existingClaim == oldSelf.existingClaim
+                  message: existingClaim is immutable; a replacement requires a new application
+                - rule: '!has(self.replication) || self.replication.all(c, self.repositories.exists(r, r.name == c.repository))'
+                  message: replication must name a declared source repository
+              properties:
+                replicas: {type: integer, minimum: 0, maximum: 1}
+                existingClaim: {type: string, minLength: 1}
+                tlsSecret: {type: string, minLength: 1}
+                image: {type: string, minLength: 1}
+                repositories:
+                  type: array
+                  minItems: 1
+                  maxItems: 32
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [name]
+                  items:
+                    type: object
+                    required: [name, authSecret, passwordSecret]
+                    properties:
+                      name: {type: string, maxLength: 58, pattern: '^[a-z0-9]([a-z0-9-]{0,56}[a-z0-9])?$'}
+                      authSecret: {type: string, minLength: 1}
+                      passwordSecret: {type: string, minLength: 1}
+                      recovery:
+                        type: object
+                        required: [host, repository, credentialsSecret]
+                        properties:
+                          host: {type: string, maxLength: 253, pattern: '^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$'}
+                          repository: {type: string, maxLength: 58, pattern: '^[a-z0-9]([a-z0-9-]{0,56}[a-z0-9])?$'}
+                          credentialsSecret: {type: string, minLength: 1}
+                replication:
+                  type: array
+                  maxItems: 32
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [name]
+                  items:
+                    type: object
+                    required: [name, repository, sourceCredentialsSecret, destination, schedule]
+                    properties:
+                      name: {type: string, maxLength: 20, pattern: '^[a-z0-9]([a-z0-9-]*[a-z0-9])?$'}
+                      repository: {type: string, maxLength: 58, pattern: '^[a-z0-9]([a-z0-9-]{0,56}[a-z0-9])?$'}
+                      sourceCredentialsSecret: {type: string, minLength: 1}
+                      schedule: {type: string, minLength: 1, maxLength: 256}
+                      timeZone: {type: string, minLength: 1}
+                      suspend: {type: boolean}
+                      activeDeadlineSeconds: {type: integer, format: int64, minimum: 1, maximum: 2147483647}
+                      destination:
+                        type: object
+                        required: [host, repository, credentialsSecret]
+                        properties:
+                          host: {type: string, maxLength: 253, pattern: '^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$'}
+                          repository: {type: string, maxLength: 58, pattern: '^[a-z0-9]([a-z0-9-]{0,56}[a-z0-9])?$'}
+                          credentialsSecret: {type: string, minLength: 1}
+            status:
+              type: object
+              properties:
+                state: {type: string}
+                reason: {type: string}
+                observedGeneration: {type: integer, format: int64}
+                operation:
+                  type: object
+                  properties:
+                    id: {type: string}
+                    jobName: {type: string}
+                    jobUID: {type: string}
+                    pvcUID: {type: string}
+                    generation: {type: integer, format: int64}
+                    inputHash: {type: string}
+                    result: {type: string}
+                    reason: {type: string}
+                conditions:
+                  type: array
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [type]
+                  items:
+                    type: object
+                    required: [type, status, reason, message, lastTransitionTime]
+                    properties:
+                      type: {type: string}
+                      status: {type: string}
+                      reason: {type: string}
+                      message: {type: string}
+                      observedGeneration: {type: integer, format: int64}
+                      lastTransitionTime: {type: string, format: date-time}
