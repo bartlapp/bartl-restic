@@ -116,17 +116,31 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if err := validateReplication(a); err != nil {
 		return again, r.fail(ctx, a, err.Error())
 	}
+	op := a.Status.Operation
+	established := op != nil && op.Result == "Succeeded"
 	pvc := new(corev1.PersistentVolumeClaim)
 	if err := r.Get(ctx, r.key(a.Spec.ExistingClaim), pvc); err != nil {
+		if established && (!apierrors.IsNotFound(err) || apierrors.IsUnexpectedServerError(err)) {
+			return again, err
+		}
+		if established {
+			return again, r.fail(ctx, a, "Configured PVC no longer exists")
+		}
 		return again, r.blocked(ctx, a, "Cannot observe configured PVC: "+err.Error())
 	}
 	if pvc.DeletionTimestamp != nil {
 		return again, r.fail(ctx, a, "Claim is being deleted")
 	}
+	if established && op.PVCUID != string(pvc.UID) {
+		return again, r.fail(ctx, a, "Claim UID no longer matches the successful admission")
+	}
 	if owner := pvc.Annotations[claimOwner]; owner != "" && owner != string(a.UID) {
 		return again, r.fail(ctx, a, "Claim belongs to another application UID")
 	}
 	if pvc.Annotations[claimOwner] == "" {
+		if established {
+			return again, r.fail(ctx, a, "Claim application ownership was revoked")
+		}
 		if pvc.Annotations == nil {
 			pvc.Annotations = map[string]string{}
 		}
@@ -136,24 +150,32 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		}
 		return again, nil
 	}
+	// An unreadable established workload is not evidence that it needs replacing.
+	// Observe it before applying even changed intent, so an outage cannot mutate
+	// the last admitted endpoint or claim that a new generation was verified.
+	current := new(appsv1.Deployment)
+	var readErr error
+	if established {
+		readErr = r.Get(ctx, r.key(a.Name), current)
+		if readErr != nil && (!apierrors.IsNotFound(readErr) || apierrors.IsUnexpectedServerError(readErr)) {
+			return again, readErr
+		}
+	}
 	hash, err := r.inputHash(ctx, a, pvc)
 	if err != nil {
+		if established {
+			return again, err
+		}
 		return again, r.blocked(ctx, a, "Cannot observe configured inputs: "+err.Error())
 	}
-	op := a.Status.Operation
 	if op != nil && op.Result == "Running" && (op.InputHash != hash || op.PVCUID != string(pvc.UID) || op.Generation != a.Generation) {
 		return again, r.fail(ctx, a, "Inputs changed during an admitted operation")
 	}
 	if op != nil && op.Result == "Succeeded" && op.InputHash == hash && op.PVCUID == string(pvc.UID) {
-		current := new(appsv1.Deployment)
-		readErr := r.Get(ctx, r.key(a.Name), current)
 		if a.Status.State == "Ready" && (readErr != nil || a.Status.ObservedGeneration != a.Generation || current.Status.ObservedGeneration < current.Generation || current.Status.ReadyReplicas != 1) {
 			if err := r.status(ctx, a, "Starting", "Waiting for current HTTPS endpoint readiness"); err != nil {
 				return again, err
 			}
-		}
-		if readErr != nil && !apierrors.IsNotFound(readErr) {
-			return again, readErr
 		}
 		if err := r.serving(ctx, a, pvc); err != nil {
 			return again, err

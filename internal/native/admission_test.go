@@ -3,11 +3,13 @@ package native
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	api "codeberg.org/bartlapp/bartl-restic/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -161,6 +163,103 @@ func TestServeAdmissionUsesVerifiedTargetNotReadinessOrLatestGeneration(t *testi
 			err := guard.check(context.Background())
 			if (err == nil) != tc.allowed {
 				t.Fatalf("admission allowed=%v, want %v: %v", err == nil, tc.allowed, err)
+			}
+		})
+	}
+}
+
+func TestAdmissionDistinguishesRevocationFromUnavailableObservation(t *testing.T) {
+	t.Setenv("PVC_UID", "original-pvc")
+	t.Setenv("OPERATION_UID", "operation")
+	for _, object := range []string{"application", "PVC"} {
+		for _, tc := range []struct {
+			name    string
+			code    int
+			body    string
+			revoked bool
+		}{
+			{"Kubernetes NotFound", 404, `{"kind":"Status","apiVersion":"v1","reason":"NotFound","code":404}`, true},
+			{"proxy 404", 404, `not found`, false},
+			{"unconfirmed 404", 404, `{"reason":"NotFound"}`, false},
+			{"unauthorized", 401, ``, false},
+			{"forbidden", 403, ``, false},
+			{"API unavailable", 503, ``, false},
+			{"malformed", 200, `{`, false},
+			{"trailing malformed data", 200, `{"metadata":{"uid":"replacement","generation":4}}{`, false},
+			{"empty identity", 200, `{"metadata":{}}`, false},
+			{"replacement identity", 200, `{"metadata":{"uid":"replacement","generation":4}}`, true},
+		} {
+			t.Run(object+"/"+tc.name, func(t *testing.T) {
+				guard := fixtureAdmission(t, admittedApplication("serve"), "serve", func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(tc.code)
+					w.Write([]byte(tc.body))
+				})
+				if object == "application" {
+					guard.url = guard.pvcURL + "data"
+				}
+				err := guard.check(context.Background())
+				if err == nil || errors.Is(err, errAdmissionRevoked) != tc.revoked {
+					t.Fatalf("observation error = %v, want revoked=%v", err, tc.revoked)
+				}
+			})
+		}
+	}
+}
+
+func TestAdmissionNegativeDominatesUnavailableObservation(t *testing.T) {
+	t.Setenv("PVC_UID", "original-pvc")
+	for _, negative := range []string{"application", "PVC"} {
+		t.Run(negative, func(t *testing.T) {
+			app := admittedApplication("serve")
+			if negative == "application" {
+				app.Spec.Replicas = 0
+			}
+			guard := fixtureAdmission(t, app, "serve", func(w http.ResponseWriter, r *http.Request) {
+				if negative == "application" {
+					w.WriteHeader(http.StatusServiceUnavailable)
+					return
+				}
+				pvc := admittedPVC()
+				delete(pvc["metadata"].(map[string]any), "annotations")
+				json.NewEncoder(w).Encode(pvc)
+			})
+			guard.boundClaim = "data"
+			if negative == "PVC" {
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusServiceUnavailable)
+				}))
+				defer server.Close()
+				guard.url = server.URL
+			}
+			if err := guard.check(context.Background()); !errors.Is(err, errAdmissionRevoked) {
+				t.Fatalf("confirmed negative lost to unavailable observation: %v", err)
+			}
+		})
+	}
+}
+
+func TestWorkerMonitorsRemainFailClosedOnUnavailableObservation(t *testing.T) {
+	t.Setenv("PVC_UID", "original-pvc")
+	t.Setenv("OPERATION_UID", "operation")
+	for _, mode := range []string{"lifecycle", "replicate"} {
+		t.Run(mode, func(t *testing.T) {
+			guard := fixtureAdmission(t, admittedApplication(mode), mode, func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusServiceUnavailable)
+			})
+			ctx, cancel := context.WithCancelCause(context.Background())
+			defer cancel(nil)
+			done := make(chan struct{})
+			go func() {
+				guard.monitor(ctx, cancel)
+				close(done)
+			}()
+			select {
+			case <-done:
+				if context.Cause(ctx) == nil {
+					t.Fatal("worker monitor did not cancel on unavailable observation")
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("worker kept running without current admission")
 			}
 		})
 	}
