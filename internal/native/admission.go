@@ -19,6 +19,7 @@ const serviceAccountDirectory = "/var/run/secrets/kubernetes.io/serviceaccount"
 type admission struct {
 	client     *http.Client
 	url        string
+	pvcURL     string
 	uid        string
 	mode       string
 	generation int64
@@ -42,7 +43,7 @@ func newAdmission(mode string) (*admission, error) {
 	if !pool.AppendCertsFromPEM(ca) {
 		return nil, errors.New("invalid Kubernetes CA")
 	}
-	return &admission{client: &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}}}, url: "https://kubernetes.default.svc/apis/restic.bartl.sh/v1alpha1/namespaces/" + url.PathEscape(namespace) + "/resticapplications/" + url.PathEscape(name), uid: uid, mode: mode, generation: generation, tokenFile: serviceAccountDirectory + "/token"}, nil
+	return &admission{client: &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}}}, url: "https://kubernetes.default.svc/apis/restic.bartl.sh/v1alpha1/namespaces/" + url.PathEscape(namespace) + "/resticapplications/" + url.PathEscape(name), pvcURL: "https://kubernetes.default.svc/api/v1/namespaces/" + url.PathEscape(namespace) + "/persistentvolumeclaims/", uid: uid, mode: mode, generation: generation, tokenFile: serviceAccountDirectory + "/token"}, nil
 }
 func (a *admission) check(ctx context.Context) error {
 	token, err := os.ReadFile(a.tokenFile)
@@ -69,7 +70,8 @@ func (a *admission) check(ctx context.Context) error {
 			DeletionTimestamp *string `json:"deletionTimestamp"`
 		} `json:"metadata"`
 		Spec struct {
-			Replicas *int `json:"replicas"`
+			Replicas      *int   `json:"replicas"`
+			ExistingClaim string `json:"existingClaim"`
 		} `json:"spec"`
 		Status struct {
 			State              string `json:"state"`
@@ -97,11 +99,46 @@ func (a *admission) check(ctx context.Context) error {
 			return errors.New("replication no longer owns the verified target")
 		}
 	}
+	if a.mode == "serve" {
+		op := app.Status.Operation
+		if op == nil || op.Result != "Succeeded" || op.PVCUID != os.Getenv("PVC_UID") {
+			return errors.New("serving no longer owns the verified target")
+		}
+	}
 	if a.mode == "lifecycle" {
 		op := app.Status.Operation
 		if op == nil || op.Result != "Running" || op.JobUID != os.Getenv("OPERATION_UID") || op.PVCUID != os.Getenv("PVC_UID") || op.Generation != app.Metadata.Generation {
 			return errors.New("lifecycle operation no longer owns current application and target")
 		}
+	}
+	if app.Spec.ExistingClaim == "" || os.Getenv("PVC_UID") == "" {
+		return errors.New("missing live PVC execution identity")
+	}
+	req, err = http.NewRequestWithContext(ctx, http.MethodGet, a.pvcURL+url.PathEscape(app.Spec.ExistingClaim), nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+string(token))
+	pvcResp, err := a.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("cannot establish current PVC ownership: %w", err)
+	}
+	defer pvcResp.Body.Close()
+	if pvcResp.StatusCode != http.StatusOK {
+		return fmt.Errorf("cannot establish current PVC ownership: HTTP %d", pvcResp.StatusCode)
+	}
+	var pvc struct {
+		Metadata struct {
+			UID               string            `json:"uid"`
+			Annotations       map[string]string `json:"annotations"`
+			DeletionTimestamp *string           `json:"deletionTimestamp"`
+		} `json:"metadata"`
+	}
+	if err := json.NewDecoder(pvcResp.Body).Decode(&pvc); err != nil {
+		return err
+	}
+	if pvc.Metadata.UID != os.Getenv("PVC_UID") || pvc.Metadata.Annotations["restic.bartl.sh/application-uid"] != a.uid || pvc.Metadata.DeletionTimestamp != nil {
+		return errors.New("current PVC ownership refuses work")
 	}
 	return nil
 }

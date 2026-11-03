@@ -16,7 +16,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: bartl-restic-worker lifecycle|replicate --config FILE")
+		fmt.Fprintln(os.Stderr, "usage: bartl-restic-worker lifecycle|replicate --config FILE | serve")
 		os.Exit(2)
 	}
 	flags := flag.NewFlagSet(os.Args[1], flag.ExitOnError)
@@ -24,6 +24,13 @@ func main() {
 	flags.Parse(os.Args[2:])
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
+	if os.Args[1] == "serve" {
+		if err := native.Serve(ctx); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	result, err := native.Run(ctx, os.Args[1], *path)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
