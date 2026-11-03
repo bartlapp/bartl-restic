@@ -55,16 +55,16 @@ Each declared repository has one URL, `rest:https://HOST/REPOSITORY/`, and its o
 
 Native locks coordinate cooperative Restic clients. A holder of reader or writer credentials can delete lock objects; locks are not protection against a malicious credential holder. Neither the chart nor maintenance disables consumers or automatically unlocks a repository.
 
-### Published release 0.2.0
+### Published release 0.2.1
 
 Install the published Helm chart and combined controller/worker image; no source checkout or build is required. The image supports `linux/amd64`. Retain these immutable references with the installation configuration:
 
 ```sh
-CHART=oci://ghcr.io/bartlapp/bartl-restic@sha256:aeaa22dd009fd505c86049de285c81e0a44ab68640f528dc297d6d67efd306de
-IMAGE=ghcr.io/bartlapp/bartl-restic-controller@sha256:3bbc370143d7d6363522643bb9c1f71b634176512696040669b5a3168a086446
+CHART=oci://ghcr.io/bartlapp/bartl-restic@sha256:78d118df791192bcc8dc08ce7ce13ded3ac01b51c33cd19090c30cb7c2d8f20a
+IMAGE=ghcr.io/bartlapp/bartl-restic-controller@sha256:3ee7994268a23b4beff8a10d6ecc77c13471baa7d4f9e073c4a8dad852deb757
 ```
 
-The chart already pins this image; no image override is needed. Version tags are `0.2.0`, but installation and upgrades below use the chart digest. The chart archive SHA-256 is `fc01a8c1d97c35601a5828a645a9230998b18122a6fa7b88c735d340e333d209`.
+The chart already pins this image; no image override is needed. Version tags are `0.2.1`, but installation and upgrades below use the chart digest. The chart archive SHA-256 is `94293548ac5fd0a86976e4af0e678596a53c8d0144dad1983810cea64c9a4dfc`. Release 0.2.1 adds safe retained-PVC reuse after supported uninstall; 0.2.0 artifacts remain available unchanged.
 
 Use Helm 4.3.0, a cluster-compatible kubectl, OpenSSL and jq. The cluster needs amd64 nodes, registry egress, an existing writable ReadWriteOnce PVC, and permissions to install the cluster-scoped `ResticApplication` CRD and namespaced resources. Enforce NetworkPolicy through the cluster CNI. Supply TLS and DNS/routing for the endpoint as described below.
 
@@ -197,6 +197,37 @@ For damaged-history diagnosis, enumerate native IDs with `restic list snapshots`
 
 Transient backend errors follow Restic 0.19.1's native 15-minute retry window per operation. During retries the lifecycle remains unserved and logs the underlying errors; exhausted retries produce `Failed`, never initialization. Stop intent cancels those native waits too.
 
+### Upgrade 0.2.0 before removal
+
+Upgrade the existing installation to 0.2.1 before deleting its application. The fixed controller must perform finalization; installing 0.2.1 after a 0.2.0 uninstall cannot retroactively release an orphaned binding. Keep the same PVC and independently retained configuration/Secrets. With `CHART` and `IMAGE` set to the 0.2.1 references above, upgrade a running installation:
+
+```sh
+(
+  set -eu
+  helm upgrade backup "$CHART" -n backup -f endpoint-values.yaml \
+    --set application.replicas=1 --wait=legacy --timeout=5m
+  kubectl -n backup rollout status deployment/backup-restic-controller --timeout=3m
+  GENERATION=$(kubectl -n backup get resticapplication backup-restic \
+    -o jsonpath='{.metadata.generation}')
+  kubectl -n backup wait resticapplication/backup-restic \
+    --for=jsonpath='{.status.observedGeneration}'="$GENERATION" --timeout=30m
+  kubectl -n backup wait resticapplication/backup-restic \
+    --for=condition=Ready --timeout=30m
+  APPLICATION=$(kubectl -n backup get resticapplication backup-restic -o json)
+  printf '%s\n' "$APPLICATION" | jq -e --arg image "$IMAGE" '
+    .metadata.generation as $generation |
+    .spec.image == $image and .spec.replicas == 1 and
+    .status.state == "Ready" and .status.observedGeneration == $generation and
+    any(.status.conditions[]?;
+      .type == "Ready" and .status == "True" and
+      .observedGeneration == $generation) and
+    (.metadata.finalizers | index("restic.bartl.sh/drain") != null)
+  ' >/dev/null
+)
+```
+
+Confirm repository identity and retained history and restore an old point before continuing with supported uninstall. Keep the upgraded controller running through application deletion. There is no annotation-clearing or finalizer-bypass step for already-orphaned bindings.
+
 ### Supported uninstall
 
 Remove an installation in this order: stop and confirm current-generation drainage, delete its `ResticApplication` and wait for finalization while its controller is still running, then uninstall the Helm release. Do not delete the namespace, controller or Helm release first: the application needs its controller to complete the drain finalizer.
@@ -237,11 +268,20 @@ Retain `application.replicas: 0` in `endpoint-values.yaml`, and prevent another 
 
 The subshell stops on any failed check or timeout. Keep the controller running and inspect application status, Pods and controller logs before continuing; never remove finalizers to force completion. An unavailable API or incomplete drainage is not permission to uninstall.
 
-This removes application/controller resources, not the operator-owned PVC, repository data or Secrets, including any secondary credentials. Keep those inputs for recovery. In 0.2.0, the retained PVC still carries the former application's UID binding; a new application cannot directly adopt it. Uninstall does not release that ownership, and clearing the binding is not part of this procedure. The retained repository remains readable with native Restic and its encryption key.
+This removes application/controller resources, not the operator-owned PVC, repository data or Secrets, including any secondary credentials. Keep those inputs for recovery or reinstallation.
 
-Current source adds same-PVC reuse after successful supported uninstall; this change is not in published 0.2.0. Ordinary stop retains ownership and the drain finalizer. During application deletion, the controller confirms drainage again and conditionally releases only that application's claim binding before completing finalization. Unavailable observations or conflicting writes leave removal incomplete. Failed or interrupted lifecycle operations keep the claim fenced; removal does not clear failure markers or native locks.
+Release 0.2.1 supports same-PVC reuse after successful supported uninstall. Ordinary stop retains ownership and the drain finalizer. During application deletion, the controller confirms drainage again and conditionally releases only that application's claim binding before completing finalization. Unavailable observations or conflicting writes leave removal incomplete. Failed or interrupted lifecycle operations keep the claim fenced; removal does not clear failure markers or native locks.
 
-Use the same candidate package for removal and reinstallation. After finalization and Helm uninstall complete, reinstall with the retained PVC, configuration and Secrets and `application.replicas: 1`. The new application acquires ownership and performs fresh native admission of the existing repositories. Require current-generation Ready, verify repository identity and retained history, restore an old point and verify a new backup. Never clear a stale 0.2.0 binding manually as a shortcut to this procedure.
+After finalization and Helm uninstall complete, retain `application.replicas: 1` in the installation values and reinstall 0.2.1 with the same PVC, configuration and Secrets:
+
+```sh
+helm upgrade --install backup "$CHART" -n backup -f endpoint-values.yaml \
+  --set application.replicas=1 --wait=legacy --timeout=5m
+kubectl -n backup wait --for=condition=Ready resticapplication/backup-restic --timeout=30m
+kubectl -n backup get resticapplication backup-restic -o json
+```
+
+The new application acquires ownership and performs fresh native admission of the existing repositories. Require current-generation Ready, verify repository identity and retained history, restore an old point and verify a new backup.
 
 The shared CRD also remains installed. Namespace deletion is a separate destructive action: it deletes the retained PVC and Secrets and may destroy the storage contents according to the StorageClass reclaim policy. It is not part of this uninstall procedure.
 
@@ -351,14 +391,24 @@ Keep run artifacts outside Git. Put the concise verification result, tested vers
 To exercise supported uninstall against the published artifacts, use the `CHART` and `IMAGE` references from the installation section on an authorized disposable Hetzner cluster:
 
 ```sh
-BARTL_RESTIC_LAB=hetzner KUBECONFIG=/private/lab-kubeconfig \
+BARTL_RESTIC_LAB=hetzner KUBECONFIG=/private/lab-kubeconfig BARTL_RESTIC_REUSE=1 \
   BARTL_RESTIC_CHART="$CHART" BARTL_RESTIC_IMAGE="$IMAGE" \
   node tests/uninstall.mjs
 ```
 
-This regression verifies finalization with the controller alive, PVC/Secret preservation, a full native repository check and byte-correct restore from retained storage after uninstall, and separate namespace destruction afterward. It emits assertions and external redacted raw logs only, not a qualification report.
+This regression verifies finalization with the controller alive, PVC/Secret preservation, same-PVC reinstall with unchanged repository identity/history, old/new backups and restores, contender exclusion and stale-worker refusal, then separate namespace destruction. It emits assertions and external redacted raw logs only, not a qualification report.
 
-For an unpublished reuse candidate, build on the authorized Hetzner host, pin a staged chart to that image's manifest digest, package it locally and import the exact image into the test cluster. Set `BARTL_RESTIC_CHART` to the packaged `.tgz`, `BARTL_RESTIC_IMAGE` to the imported digest reference and `BARTL_RESTIC_REUSE=1`. The same runner then verifies live/stopped-owner exclusion, supported uninstall and same-PVC reinstall, unchanged configuration/Secrets and repository history, old/new restores, and refusal of a replayed worker from the retired application. This mode requires the candidate controller; published 0.2.0 remains unchanged.
+For the published 0.2.0-to-0.2.1 upgrade scenario, add the source references to the same invocation:
+
+```sh
+BARTL_RESTIC_LAB=hetzner KUBECONFIG=/private/lab-kubeconfig BARTL_RESTIC_REUSE=1 \
+  BARTL_RESTIC_CHART="$CHART" BARTL_RESTIC_IMAGE="$IMAGE" \
+  BARTL_RESTIC_UPGRADE_FROM_CHART=oci://ghcr.io/bartlapp/bartl-restic@sha256:aeaa22dd009fd505c86049de285c81e0a44ab68640f528dc297d6d67efd306de \
+  BARTL_RESTIC_UPGRADE_FROM_IMAGE=ghcr.io/bartlapp/bartl-restic-controller@sha256:3bbc370143d7d6363522643bb9c1f71b634176512696040669b5a3168a086446 \
+  node tests/uninstall.mjs
+```
+
+It first installs and backs up through 0.2.0, upgrades the existing application to 0.2.1, verifies preserved identity/history and an old-point restore, then performs supported uninstall and same-PVC reinstallation of 0.2.1. For an unpublished candidate, the target `BARTL_RESTIC_CHART` may instead name a packaged `.tgz` pinned to an immutable image already available in the authorized Hetzner cluster; the source chart must remain a digest-pinned published reference.
 
 ## Release maintenance and licensing
 
@@ -366,7 +416,7 @@ Follow the Bartl publication convention: public OCI packages under `ghcr.io/bart
 
 1. Inspect live Codeberg repository policy/access and GitHub organization/package authority before remote writes. Registry publication requires `write:packages`; new GHCR packages need explicit public-visibility approval and an administrator to complete that setting.
 2. Commit release changes separately. Build the combined image from the committed source on an authorized Hetzner host using `Dockerfile`, `--platform linux/amd64`, `--provenance=false`, `--build-arg VERSION=VERSION` and `--build-arg REVISION=FULL_SOURCE_SHA`. Retain the source archive and OCI image archive outside Git.
-3. Set the chart version and pin its default image to the retained manifest digest. Stage a copy of `chart/` with root `LICENSE` and `NOTICE` included, then `helm package` that directory. Retain the chart archive and SHA-256. The published 0.2.0 archive includes those notices and `crds/resticapplications.yaml`.
+3. Set the chart version and pin its default image to the retained manifest digest. Stage a copy of `chart/` with root `LICENSE` and `NOTICE` included, then `helm package` that directory. Retain the chart archive and SHA-256. The published 0.2.1 archive includes those notices and `crds/resticapplications.yaml`.
 4. Publish the retained image with digest preservation and the retained chart to `oci://ghcr.io/bartlapp`. Use isolated temporary registry credentials and remove them afterward. Do not rebuild or repackage between verification and publication.
 5. With empty registry credentials, acquire the complete chart and image, verify archive/manifest identities, then smoke-install the published chart on a disposable Hetzner cluster. Verify current-generation startup, authenticated backup/restore, stop/start and actual runtime image IDs against the published digest.
 6. Put artifact identities, concise verification, material limits and provider cleanup/budget outcome in the release/integration description. Integrate through the permitted Codeberg workflow without squashing; keep raw logs outside Git and delete disposable infrastructure.

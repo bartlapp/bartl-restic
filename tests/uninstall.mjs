@@ -5,12 +5,21 @@ import { createHash, randomBytes } from 'node:crypto';
 import { appendFileSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 import { createArtifactDirectory } from './artifacts.mjs';
 import { uninstallStoppedApplication } from './removal.mjs';
 
 const chart = process.env.BARTL_RESTIC_CHART || '';
 const image = process.env.BARTL_RESTIC_IMAGE || '';
 const reuse = process.env.BARTL_RESTIC_REUSE === '1';
+const sourceChart = process.env.BARTL_RESTIC_UPGRADE_FROM_CHART || '';
+const sourceImage = process.env.BARTL_RESTIC_UPGRADE_FROM_IMAGE || '';
+if ((sourceChart || sourceImage) && (!reuse ||
+    !/^oci:\/\/[^\s]+@sha256:[a-f0-9]{64}$/.test(sourceChart) ||
+    !/^[^\s]+@sha256:[a-f0-9]{64}$/.test(sourceImage))) {
+  console.error('Upgrade proof requires BARTL_RESTIC_REUSE=1 and both immutable BARTL_RESTIC_UPGRADE_FROM_CHART/IMAGE references.');
+  process.exit(2);
+}
 const publishedChart = /^oci:\/\/[^\s]+@sha256:[a-f0-9]{64}$/.test(chart);
 const localChart = !chart.startsWith('oci:') && chart.endsWith('.tgz') && (() => {
   try { return statSync(chart).isFile(); } catch { return false; }
@@ -86,8 +95,8 @@ const exec = (script, options) => k(['exec', 'native-client', '--', '/bin/sh', '
 function restic(operation, options) {
   return exec(`export RESTIC_REPOSITORY='rest:https://${hostname}/alpha/' RESTIC_PASSWORD_FILE=/credentials/password; export RESTIC_REST_USERNAME="$(cat /credentials/username)" RESTIC_REST_PASSWORD="$(cat /credentials/restPassword)"; restic --cacert /credentials/ca.crt ${operation}`, options);
 }
-function install() {
-  command('helm', ['upgrade', '--install', release, chart, '--namespace', namespace, '-f', join(privateDir, 'values.json'), '--wait=legacy', '--timeout', '5m'], { timeout: 330000 });
+function install(selectedChart = chart) {
+  command('helm', ['upgrade', '--install', release, selectedChart, '--namespace', namespace, '-f', join(privateDir, 'values.json'), '--wait=legacy', '--timeout', '5m'], { timeout: 330000 });
 }
 const ready = pod => pod.status.phase === 'Running' && !pod.metadata.deletionTimestamp &&
   pod.status.conditions?.some(condition => condition.type === 'Ready' && condition.status === 'True');
@@ -99,7 +108,7 @@ function controller() {
   if (running.length !== 1) throw new Error('Controller is not a single Ready running Pod');
   return running[0];
 }
-function assertPublishedImages(round) {
+function assertPublishedImages(round, expectedImage = image) {
   const object = app();
   const pods = get('pods').items;
   const owned = pods.filter(pod => pod.metadata.labels?.['app.kubernetes.io/name'] === application);
@@ -107,10 +116,10 @@ function assertPublishedImages(round) {
     .flatMap(pod => pod.status.containerStatuses || []).filter(container => container.name === 'worker');
   const guard = owned.flatMap(pod => pod.status.initContainerStatuses || []).filter(container => container.name === 'install-admission-guard');
   const controllers = controller().status.containerStatuses.filter(container => container.name === 'controller');
-  const digest = image.slice(image.indexOf('@') + 1);
+  const digest = expectedImage.slice(expectedImage.indexOf('@') + 1);
   const matches = statuses => statuses.length > 0 && statuses.every(status => status.imageID?.endsWith(digest));
   assert(`${round}: chart default, application, controller, native worker and guard use the supplied digest`,
-    object.spec.image === image && matches(controllers) && matches(worker) && matches(guard));
+    object.spec.image === expectedImage && matches(controllers) && matches(worker) && matches(guard));
 }
 function retainedSecrets() {
   return Object.fromEntries(['fixture-auth', 'fixture-key', 'fixture-tls', 'fixture-client'].map(name => {
@@ -260,6 +269,11 @@ try {
   const defaults = command('helm', ['show', 'values', chart], { timeout: 120000 }).stdout;
   const defaultImage = defaults.match(/^image:\s*["']?([^\s"']+)["']?\s*$/m)?.[1];
   assert('immutable chart default image equals the supplied image', defaultImage === image);
+  if (sourceChart) {
+    const sourceDefaults = command('helm', ['show', 'values', sourceChart], { timeout: 120000 }).stdout;
+    assert('upgrade source chart pins the supplied source image',
+      sourceDefaults.match(/^image:\s*["']?([^\s"']+)["']?\s*$/m)?.[1] === sourceImage);
+  }
   k(['create', 'namespace', namespace]);
   owned = true;
   command('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '2', '-subj', '/CN=Disposable Uninstall CA', '-keyout', join(privateDir, 'ca.key'), '-out', join(privateDir, 'ca.crt')]);
@@ -276,9 +290,9 @@ try {
   secret('fixture-client', { username: 'admin', restPassword: roles.admin, password, 'ca.crt': readFileSync(join(privateDir, 'ca.crt'), 'utf8') });
   apply({ apiVersion: 'v1', kind: 'PersistentVolumeClaim', metadata: { name: 'fixture-data' }, spec: { accessModes: ['ReadWriteOnce'], resources: { requests: { storage: '3Gi' } } } });
   writeFileSync(join(privateDir, 'values.json'), JSON.stringify({ existingClaim: 'fixture-data', tlsSecret: 'fixture-tls', repositories: [{ name: 'alpha', authSecret: 'fixture-auth', passwordSecret: 'fixture-key' }] }), { mode: 0o600 });
-  install();
+  install(sourceChart || chart);
   await state('Ready');
-  assertPublishedImages('initial install');
+  assertPublishedImages('initial install', sourceImage || image);
   apply({ apiVersion: 'v1', kind: 'Pod', metadata: { name: 'native-client' }, spec: { automountServiceAccountToken: false, restartPolicy: 'Never',
     containers: [{ name: 'native', image, command: ['/bin/sh', '-ec', 'while :; do sleep 3600; done'], volumeMounts: [{ name: 'credentials', mountPath: '/credentials', readOnly: true }] }],
     volumes: [{ name: 'credentials', secret: { secretName: 'fixture-client', defaultMode: 0o400 } }] } });
@@ -296,6 +310,18 @@ try {
   const pvcUID = get('pvc', 'fixture-data').metadata.uid;
   const secrets = retainedSecrets();
   const originalUID = app().metadata.uid;
+  if (sourceChart) {
+    install();
+    const upgraded = await state('Ready');
+    assertPublishedImages('upgraded fixed release');
+    assert('upgrade preserves application/PVC identity and independent Secrets',
+      upgraded.metadata.uid === originalUID && get('pvc', 'fixture-data').metadata.uid === pvcUID && secretsUnchanged(secrets));
+    assert('fixed controller protects finalization and retains repository identity/history after upgrade',
+      upgraded.metadata.finalizers?.includes('restic.bartl.sh/drain') && owner() === originalUID &&
+      JSON.parse(restic('cat config').stdout).id === repositoryID &&
+      JSON.stringify(JSON.parse(restic('snapshots --json').stdout)) === JSON.stringify(snapshots));
+    await restore(snapshot, payloadHash, 'after-upgrade-old', 'upgrade old point');
+  }
   const originalSpec = app().spec;
   const capturedLifecycle = reuse ? captureLifecycle() : null;
   if (reuse) {
@@ -330,7 +356,10 @@ try {
     assert('reinstall binds the identical PVC to a fresh application UID with unchanged configuration and Secrets',
       replacement.metadata.uid !== originalUID && owner() === replacement.metadata.uid &&
       get('pvc', 'fixture-data').metadata.uid === pvcUID && secretsUnchanged(secrets) &&
-      JSON.stringify(replacement.spec) === JSON.stringify(originalSpec));
+      replacement.spec.existingClaim === originalSpec.existingClaim &&
+      replacement.spec.tlsSecret === originalSpec.tlsSecret &&
+      isDeepStrictEqual(replacement.spec.repositories, originalSpec.repositories) &&
+      isDeepStrictEqual(replacement.spec.replication ?? [], originalSpec.replication ?? []));
     const oldHistory = JSON.parse(restic('snapshots --json').stdout);
     assert('reinstalled endpoint exposes the identical repository ID and exact old history',
       JSON.parse(restic('cat config').stdout).id === repositoryID &&
