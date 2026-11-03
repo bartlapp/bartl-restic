@@ -239,6 +239,10 @@ The subshell stops on any failed check or timeout. Keep the controller running a
 
 This removes application/controller resources, not the operator-owned PVC, repository data or Secrets, including any secondary credentials. Keep those inputs for recovery. In 0.2.0, the retained PVC still carries the former application's UID binding; a new application cannot directly adopt it. Uninstall does not release that ownership, and clearing the binding is not part of this procedure. The retained repository remains readable with native Restic and its encryption key.
 
+Current source adds same-PVC reuse after successful supported uninstall; this change is not in published 0.2.0. Ordinary stop retains ownership and the drain finalizer. During application deletion, the controller confirms drainage again and conditionally releases only that application's claim binding before completing finalization. Unavailable observations or conflicting writes leave removal incomplete. Failed or interrupted lifecycle operations keep the claim fenced; removal does not clear failure markers or native locks.
+
+Use the same candidate package for removal and reinstallation. After finalization and Helm uninstall complete, reinstall with the retained PVC, configuration and Secrets and `application.replicas: 1`. The new application acquires ownership and performs fresh native admission of the existing repositories. Require current-generation Ready, verify repository identity and retained history, restore an old point and verify a new backup. Never clear a stale 0.2.0 binding manually as a shortcut to this procedure.
+
 The shared CRD also remains installed. Namespace deletion is a separate destructive action: it deletes the retained PVC and Secrets and may destroy the storage contents according to the StorageClass reclaim policy. It is not part of this uninstall procedure.
 
 ### Scheduled replication
@@ -353,6 +357,8 @@ BARTL_RESTIC_LAB=hetzner KUBECONFIG=/private/lab-kubeconfig \
 ```
 
 This regression verifies finalization with the controller alive, PVC/Secret preservation, a full native repository check and byte-correct restore from retained storage after uninstall, and separate namespace destruction afterward. It emits assertions and external redacted raw logs only, not a qualification report.
+
+For an unpublished reuse candidate, build on the authorized Hetzner host, pin a staged chart to that image's manifest digest, package it locally and import the exact image into the test cluster. Set `BARTL_RESTIC_CHART` to the packaged `.tgz`, `BARTL_RESTIC_IMAGE` to the imported digest reference and `BARTL_RESTIC_REUSE=1`. The same runner then verifies live/stopped-owner exclusion, supported uninstall and same-PVC reinstall, unchanged configuration/Secrets and repository history, old/new restores, and refusal of a replayed worker from the retired application. This mode requires the candidate controller; published 0.2.0 remains unchanged.
 
 ## Release maintenance and licensing
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// Existing authorized disposable Hetzner cluster only; published digest-pinned artifacts.
+// Existing authorized disposable Hetzner cluster only; immutable chart/image inputs.
 import { spawnSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
-import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash, randomBytes } from 'node:crypto';
+import { appendFileSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createArtifactDirectory } from './artifacts.mjs';
@@ -10,12 +10,18 @@ import { uninstallStoppedApplication } from './removal.mjs';
 
 const chart = process.env.BARTL_RESTIC_CHART || '';
 const image = process.env.BARTL_RESTIC_IMAGE || '';
+const reuse = process.env.BARTL_RESTIC_REUSE === '1';
+const publishedChart = /^oci:\/\/[^\s]+@sha256:[a-f0-9]{64}$/.test(chart);
+const localChart = !chart.startsWith('oci:') && chart.endsWith('.tgz') && (() => {
+  try { return statSync(chart).isFile(); } catch { return false; }
+})();
 if (process.env.BARTL_RESTIC_LAB !== 'hetzner' || !process.env.KUBECONFIG ||
-    !/^oci:\/\/[^\s]+@sha256:[a-f0-9]{64}$/.test(chart) ||
+    !(publishedChart || localChart) ||
     !/^[^\s]+@sha256:[a-f0-9]{64}$/.test(image)) {
-  console.error('Require BARTL_RESTIC_LAB=hetzner, KUBECONFIG, digest-pinned published OCI BARTL_RESTIC_CHART and BARTL_RESTIC_IMAGE.');
+  console.error('Require BARTL_RESTIC_LAB=hetzner, KUBECONFIG, digest-pinned OCI or local packaged .tgz BARTL_RESTIC_CHART and immutable BARTL_RESTIC_IMAGE. Set BARTL_RESTIC_REUSE=1 for candidate reinstall proof.');
   process.exit(2);
 }
+const chartFingerprint = localChart ? createHash('sha256').update(readFileSync(chart)).digest('hex') : null;
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const namespace = `restic-uninstall-${Date.now().toString(36)}-${randomBytes(3).toString('hex')}`;
 const release = 'preservation';
@@ -29,6 +35,9 @@ const sensitive = [];
 const redact = value => sensitive.reduce((text, secret) => text.split(secret).join('[REDACTED]'), String(value));
 const log = entry => appendFileSync(rawLog, redact(JSON.stringify(entry)) + '\n', { mode: 0o600 });
 function command(binary, args, { input, allowFailure = false, record = true, timeout = 30000 } = {}) {
+  if (binary === 'helm' && localChart && createHash('sha256').update(readFileSync(chart)).digest('hex') !== chartFingerprint) {
+    throw new Error('Local packaged chart changed during regression; refusing a different installation artifact');
+  }
   const started = Date.now();
   const result = spawnSync(binary, args, { input, encoding: 'utf8', timeout, maxBuffer: 32 * 1024 * 1024 });
   // Secret reads never enter the raw log, even in an error response.
@@ -65,6 +74,9 @@ async function state(expected) {
   return until(`current-generation ${expected}`, () => {
     const object = app();
     const generation = object.metadata.generation;
+    if (expected === 'Ready' && object.status?.state === 'Failed' && object.status.observedGeneration === generation) {
+      throw new Error(`Ready refused: ${object.status.reason || object.status.conditions?.find(condition => condition.type === 'Failed')?.message || 'Failed without reason'}`);
+    }
     return object.status?.state === expected && object.status.observedGeneration === generation &&
       object.status.conditions?.some(condition => condition.type === expected && condition.status === 'True' && condition.observedGeneration === generation) &&
       (expected !== 'Stopped' || object.spec.replicas === 0) ? object : null;
@@ -97,7 +109,7 @@ function assertPublishedImages(round) {
   const controllers = controller().status.containerStatuses.filter(container => container.name === 'controller');
   const digest = image.slice(image.indexOf('@') + 1);
   const matches = statuses => statuses.length > 0 && statuses.every(status => status.imageID?.endsWith(digest));
-  assert(`${round}: chart default, application, controller, native worker and guard use the published digest`,
+  assert(`${round}: chart default, application, controller, native worker and guard use the supplied digest`,
     object.spec.image === image && matches(controllers) && matches(worker) && matches(guard));
 }
 function retainedSecrets() {
@@ -111,6 +123,89 @@ function secretsUnchanged(before) {
   return Object.keys(before).every(name => before[name].uid === after[name].uid && before[name].type === after[name].type &&
     Object.keys(before[name].data).length === Object.keys(after[name].data).length &&
     Object.entries(before[name].data).every(([key, value]) => after[name].data[key] === value));
+}
+const owner = () => get('pvc', 'fixture-data').metadata.annotations?.['restic.bartl.sh/application-uid'];
+async function contender(round, originalUID) {
+  const competingRelease = 'contender';
+  const name = `${competingRelease}-restic`;
+  command('helm', ['upgrade', '--install', competingRelease, chart, '--namespace', namespace,
+    '-f', join(privateDir, 'values.json'), '--wait=legacy', '--timeout', '5m'], { timeout: 330000 });
+  const rejected = await until(`${round}: contender ownership refusal`, () => {
+    const object = get('resticapplication', name);
+    return object.status?.state === 'Failed' && object.status.observedGeneration === object.metadata.generation ? object : null;
+  });
+  assert(`${round}: fresh contender is refused without changing owner`,
+    rejected.metadata.uid !== originalUID && /another application UID/.test(rejected.status.reason) && owner() === originalUID &&
+    !get('jobs').items.some(job => job.metadata.ownerReferences?.some(reference => reference.uid === rejected.metadata.uid)));
+  command('helm', ['upgrade', competingRelease, chart, '--namespace', namespace, '--reuse-values',
+    '--set', 'application.replicas=0', '--wait=legacy', '--timeout', '5m'], { timeout: 330000 });
+  await until(`${round}: contender stopped`, () => {
+    const object = get('resticapplication', name);
+    return object.spec.replicas === 0 && object.status?.state === 'Stopped' &&
+      object.status.observedGeneration === object.metadata.generation &&
+      object.status.conditions?.some(condition => condition.type === 'Stopped' && condition.status === 'True' &&
+        condition.observedGeneration === object.metadata.generation);
+  });
+  uninstallStoppedApplication({ namespace, release: competingRelease, command });
+  assert(`${round}: contender deletion preserves the foreign owner`, owner() === originalUID);
+}
+function captureLifecycle() {
+  const object = app();
+  const job = get('job', object.status.operation.jobName);
+  const configs = Object.fromEntries(job.spec.template.spec.volumes.filter(volume => volume.configMap)
+    .map(volume => [volume.configMap.name, get('configmap', volume.configMap.name).data]));
+  assert('capture completed real lifecycle Job with original application identity',
+    job.spec.template.spec.containers.find(container => container.name === 'worker').env
+      .some(variable => variable.name === 'APPLICATION_UID' && variable.value === object.metadata.uid));
+  return { spec: job.spec, configs };
+}
+async function replayStaleLifecycle(captured, oldUID, history) {
+  apply({ apiVersion: 'v1', kind: 'Pod', metadata: { name: 'retained-inspector' }, spec: {
+    automountServiceAccountToken: false, restartPolicy: 'Never',
+    containers: [{ name: 'inspect', image, command: ['/bin/sh', '-ec', 'while :; do sleep 3600; done'],
+      volumeMounts: [{ name: 'data', mountPath: '/repository', readOnly: true }] }],
+    volumes: [{ name: 'data', persistentVolumeClaim: { claimName: 'fixture-data', readOnly: true } }] } });
+  k(['wait', '--for=condition=Ready', 'pod/retained-inspector', '--timeout=5m'], { timeout: 330000 });
+  const fingerprint = () => k(['exec', 'retained-inspector', '--', '/bin/sh', '-ec',
+    'find /repository -type f -exec sha256sum {} + > /tmp/retained-files; sort /tmp/retained-files; find /repository -print > /tmp/retained-paths; sort /tmp/retained-paths']).stdout;
+  const before = fingerprint();
+  assert('stale replay fingerprints native repository data and existing lock marker',
+    before.includes('/repository/alpha/config') && before.includes('/repository/.bartl-lock'));
+  const spec = structuredClone(captured.spec);
+  delete spec.selector;
+  delete spec.manualSelector;
+  delete spec.managedBy;
+  spec.suspend = false;
+  spec.backoffLimit = 0;
+  spec.activeDeadlineSeconds = 120;
+  spec.template.metadata = { labels: { 'restic.bartl.sh/stale-replay': 'true' } };
+  for (const [index, volume] of spec.template.spec.volumes.entries()) {
+    if (!volume.configMap) continue;
+    const name = `stale-lifecycle-config-${index}`;
+    apply({ apiVersion: 'v1', kind: 'ConfigMap', metadata: { name }, data: captured.configs[volume.configMap.name] });
+    volume.configMap.name = name;
+  }
+  const worker = spec.template.spec.containers.find(container => container.name === 'worker');
+  assert('replay retains old APPLICATION_UID and original lifecycle command',
+    worker.env.some(variable => variable.name === 'APPLICATION_UID' && variable.value === oldUID) &&
+    worker.command[1] === 'lifecycle' && oldUID !== app().metadata.uid);
+  apply({ apiVersion: 'batch/v1', kind: 'Job', metadata: { name: 'stale-lifecycle-replay' }, spec });
+  await until('stale lifecycle worker exits', () => {
+    const job = get('job', 'stale-lifecycle-replay');
+    return job.status?.conditions?.some(condition => ['Failed', 'Complete'].includes(condition.type) && condition.status === 'True');
+  });
+  const job = get('job', 'stale-lifecycle-replay');
+  const pods = get('pods').items.filter(pod => pod.metadata.ownerReferences?.some(reference => reference.uid === job.metadata.uid));
+  const output = pods.map(pod => k(['logs', pod.metadata.name, '-c', 'worker']).stdout).join('\n');
+  assert('actual stale lifecycle worker refuses the old application identity before native mutation',
+    pods.length === 1 && pods[0].status.containerStatuses?.find(container => container.name === 'worker')?.state.terminated?.exitCode !== 0 &&
+    /current application identity refuses work/.test(output) &&
+    job.status.conditions?.some(condition => condition.type === 'Failed' && condition.status === 'True'));
+  assert('stale replay leaves every retained file and native marker unchanged', fingerprint() === before);
+  assert('stale replay preserves exact repository history and new owner',
+    JSON.stringify(JSON.parse(restic('snapshots --json').stdout)) === JSON.stringify(history) && owner() === app().metadata.uid);
+  k(['delete', 'job', 'stale-lifecycle-replay', '--wait=true', '--timeout=3m'], { timeout: 210000 });
+  k(['delete', 'pod', 'retained-inspector', '--wait=true', '--timeout=3m'], { timeout: 210000 });
 }
 async function stopAndUninstall(round, pvcUID, secrets) {
   const initialController = controller();
@@ -131,6 +226,10 @@ async function stopAndUninstall(round, pvcUID, secrets) {
       !slices.some(slice => slice.endpoints?.some(endpoint => endpoint.conditions?.ready !== false));
   });
   assert(`${round}: current-generation Stopped condition and actual endpoint/lifecycle drainage`, true);
+  if (reuse) {
+    assert(`${round}: ordinary stop retains the original owner fence`, owner() === stopped.metadata.uid);
+    await contender(`${round}-stopped`, stopped.metadata.uid);
+  }
   uninstallStoppedApplication({ namespace, release, command(binary, args, options) {
     if (binary === 'helm' && args[0] === 'uninstall') {
       const absent = k(['get', 'resticapplication', application, '--ignore-not-found', '-o', 'json']).stdout.trim() === '';
@@ -160,7 +259,7 @@ let owned = false;
 try {
   const defaults = command('helm', ['show', 'values', chart], { timeout: 120000 }).stdout;
   const defaultImage = defaults.match(/^image:\s*["']?([^\s"']+)["']?\s*$/m)?.[1];
-  assert('published digest-pinned chart default image equals the supplied published image', defaultImage === image);
+  assert('immutable chart default image equals the supplied image', defaultImage === image);
   k(['create', 'namespace', namespace]);
   owned = true;
   command('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '2', '-subj', '/CN=Disposable Uninstall CA', '-keyout', join(privateDir, 'ca.key'), '-out', join(privateDir, 'ca.crt')]);
@@ -184,7 +283,7 @@ try {
     containers: [{ name: 'native', image, command: ['/bin/sh', '-ec', 'while :; do sleep 3600; done'], volumeMounts: [{ name: 'credentials', mountPath: '/credentials', readOnly: true }] }],
     volumes: [{ name: 'credentials', secret: { secretName: 'fixture-client', defaultMode: 0o400 } }] } });
   k(['wait', '--for=condition=Ready', 'pod/native-client', '--timeout=5m'], { timeout: 330000 });
-  assert('native client runs the same published image digest', get('pod', 'native-client').status.containerStatuses[0].imageID.endsWith(image.split('@')[1]));
+  assert('native client runs the supplied image digest', get('pod', 'native-client').status.containerStatuses[0].imageID.endsWith(image.split('@')[1]));
   const repositoryID = JSON.parse(restic('cat config').stdout).id;
   assert('native repository has an ID', /^[a-f0-9]{64}$/.test(repositoryID));
   exec('mkdir /fixture; dd if=/dev/urandom of=/fixture/payload bs=1024 count=64');
@@ -196,9 +295,16 @@ try {
   await restore(snapshot, payloadHash, 'before-uninstall', 'initial install');
   const pvcUID = get('pvc', 'fixture-data').metadata.uid;
   const secrets = retainedSecrets();
+  const originalUID = app().metadata.uid;
+  const originalSpec = app().spec;
+  const capturedLifecycle = reuse ? captureLifecycle() : null;
+  if (reuse) {
+    assert('initial owner is bound to the live application UID', owner() === originalUID);
+    await contender('live-owner', originalUID);
+  }
   await stopAndUninstall('uninstall', pvcUID, secrets);
   // Trusted operator readback of retained storage, not a new application claim.
-  // Native locks remain enabled; the published controller's ownership binding is untouched.
+  // Native locks remain enabled; readback never edits ownership or transition markers.
   apply({ apiVersion: 'v1', kind: 'Pod', metadata: { name: 'retained-reader' }, spec: { automountServiceAccountToken: false, restartPolicy: 'Never',
     containers: [{ name: 'native', image, command: ['/bin/sh', '-ec', 'while :; do sleep 3600; done'],
       volumeMounts: [{ name: 'data', mountPath: '/repository' }, { name: 'credentials', mountPath: '/credentials', readOnly: true }] }],
@@ -216,6 +322,37 @@ try {
   assert('retained repository passes native data check and byte-correct restore after uninstall', restoredHash === payloadHash);
   assert('readback preserves original PVC and Secrets', get('pvc', 'fixture-data').metadata.uid === pvcUID && secretsUnchanged(secrets));
   k(['delete', 'pod', 'retained-reader', '--wait=true', '--timeout=3m'], { timeout: 210000 });
+  if (reuse) {
+    assert('supported deletion released only the retired owner fence', !owner());
+    install();
+    const replacement = await state('Ready');
+    assertPublishedImages('reinstall');
+    assert('reinstall binds the identical PVC to a fresh application UID with unchanged configuration and Secrets',
+      replacement.metadata.uid !== originalUID && owner() === replacement.metadata.uid &&
+      get('pvc', 'fixture-data').metadata.uid === pvcUID && secretsUnchanged(secrets) &&
+      JSON.stringify(replacement.spec) === JSON.stringify(originalSpec));
+    const oldHistory = JSON.parse(restic('snapshots --json').stdout);
+    assert('reinstalled endpoint exposes the identical repository ID and exact old history',
+      JSON.parse(restic('cat config').stdout).id === repositoryID &&
+      JSON.stringify(oldHistory) === JSON.stringify(snapshots));
+    await restore(snapshot, payloadHash, 'after-reinstall-old', 'reinstall old point');
+    await replayStaleLifecycle(capturedLifecycle, originalUID, oldHistory);
+    exec('dd if=/dev/urandom of=/fixture/payload bs=1024 count=96');
+    const changedHash = exec('sha256sum /fixture/payload').stdout.trim().split(/\s/)[0];
+    assert('new backup payload differs from retained restore point', changedHash !== payloadHash);
+    restic('backup /fixture --host uninstall-proof --tag after-reinstall', { timeout: 330000 });
+    const newHistory = JSON.parse(restic('snapshots --json').stdout);
+    const newPoints = newHistory.filter(point => !snapshots.some(old => old.id === point.id));
+    assert('new owner accepts a new backup after stale worker refusal and preserves the old point',
+      newHistory.length === snapshots.length + 1 && newPoints.length === 1 &&
+      snapshots.every(old => newHistory.some(point => JSON.stringify(point) === JSON.stringify(old))) &&
+      JSON.parse(restic('cat config').stdout).id === repositoryID);
+    await restore(newPoints[0].id, changedHash, 'after-reinstall-new', 'reinstall new point');
+    await restore(snapshot, payloadHash, 'after-new-backup-old', 'retained old point after new backup');
+    restic('check --read-data', { timeout: 330000 });
+    await stopAndUninstall('reinstalled teardown', pvcUID, secrets);
+    assert('reinstalled application finalization releases its own fence', !owner());
+  }
   // Separate destructive cleanup, after supported uninstall and preservation proof.
   k(['delete', 'namespace', namespace, '--wait=true', '--timeout=3m'], { timeout: 210000 });
   const absent = k(['get', 'namespace', namespace, '--ignore-not-found', '-o', 'json']).stdout.trim() === '';

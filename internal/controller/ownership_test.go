@@ -74,7 +74,7 @@ func TestRejectedClaimantCanStopAndFinalizeWithOwnerRunning(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if got.Status.State != "Stopped" || contains(got.Finalizers, finalizer) || got.Status.Operation == nil || got.Status.Operation.Result != "Failed" {
+				if got.Status.State != "Stopped" || got.Status.Operation == nil || got.Status.Operation.Result != "Failed" {
 					t.Fatalf("rejected claimant did not stop durably: %+v", got)
 				}
 			}
