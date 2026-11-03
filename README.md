@@ -249,9 +249,12 @@ export BARTL_RESTIC_IMAGE=REGISTRY/RETAINED_QUALIFICATION_IMAGE
 node tests/lifecycle.mjs
 node tests/kubernetes.mjs
 node tests/replication.mjs
+node tests/observation.mjs
 ```
 
 Each runner creates its own namespace and deletes it on success. Failures retain diagnostics and print the namespace cleanup command. The runners do not provision infrastructure or establish provider cleanup or cost; the operator must delete the lab, verify removal and record the budget outcome. Use Hetzner for these tests; Colima or local Docker requires explicit permission. The controller/worker image must already be accessible to the cluster; a lab may build it on its Hetzner host and import it into containerd instead of publishing it.
+
+The observation runner verifies API isolation from the endpoint's own network namespace while authenticated client traffic remains available. Its disposable IPv4 fixture requires enforced egress NetworkPolicy, read access to the API Service/EndpointSlices and node addresses, and permission to attach a temporary root API probe with `NET_ADMIN`. The probe installs namespace-local API rejection rules because CNI policy can preserve established connections; the policy also covers replacement Pods. It requires actual API request failure and the running guard's observation-failure log before accepting the outage. The same runner checks real ServiceAccount permissions, fresh-process admission and direct-to-Pod nginx connection drainage using a native Restic pack. It writes only raw diagnostics outside Git.
 
 Run output stays outside the checkout in a private temporary directory by default. Set `BARTL_RESTIC_EVIDENCE_DIR` to an external artifact directory to select another location; paths inside the checkout, including symlink aliases, are rejected. `raw.json` holds redacted command output and diagnostic details; `qualification.json` contains the selected run summary and source provenance. Values and rendered manifests are also run artifacts, not product documentation.
 
