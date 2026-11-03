@@ -66,7 +66,7 @@ IMAGE=ghcr.io/bartlapp/bartl-restic-controller@sha256:3bbc370143d7d6363522643bb9
 
 The chart already pins this image; no image override is needed. Version tags are `0.2.0`, but installation and upgrades below use the chart digest. The chart archive SHA-256 is `fc01a8c1d97c35601a5828a645a9230998b18122a6fa7b88c735d340e333d209`.
 
-Use Helm 4.3.0, a cluster-compatible kubectl and OpenSSL. The cluster needs amd64 nodes, registry egress, an existing writable ReadWriteOnce PVC, and permissions to install the cluster-scoped `ResticApplication` CRD and namespaced resources. Enforce NetworkPolicy through the cluster CNI. Supply TLS and DNS/routing for the endpoint as described below.
+Use Helm 4.3.0, a cluster-compatible kubectl, OpenSSL and jq. The cluster needs amd64 nodes, registry egress, an existing writable ReadWriteOnce PVC, and permissions to install the cluster-scoped `ResticApplication` CRD and namespaced resources. Enforce NetworkPolicy through the cluster CNI. Supply TLS and DNS/routing for the endpoint as described below.
 
 Select the intended kubeconfig/context before running these commands. Prepare namespace `backup` and check the operator-owned claim named `repository`:
 
@@ -197,6 +197,48 @@ For damaged-history diagnosis, enumerate native IDs with `restic list snapshots`
 
 Transient backend errors follow Restic 0.19.1's native 15-minute retry window per operation. During retries the lifecycle remains unserved and logs the underlying errors; exhausted retries produce `Failed`, never initialization. Stop intent cancels those native waits too.
 
+### Supported uninstall
+
+Remove an installation in this order: stop and confirm current-generation drainage, delete its `ResticApplication` and wait for finalization while its controller is still running, then uninstall the Helm release. Do not delete the namespace, controller or Helm release first: the application needs its controller to complete the drain finalizer.
+
+Retain `application.replicas: 0` in `endpoint-values.yaml`, and prevent another operator or deployment reconciler from reapplying running intent during removal. Export required Job/Pod logs before stopping. With the same `CHART` and installation values used above:
+
+```sh
+(
+  set -eu
+  helm upgrade backup "$CHART" -n backup -f endpoint-values.yaml \
+    --set application.replicas=0
+  GENERATION=$(kubectl -n backup get resticapplication backup-restic \
+    -o jsonpath='{.metadata.generation}')
+  kubectl -n backup wait resticapplication/backup-restic \
+    --for=jsonpath='{.status.observedGeneration}'="$GENERATION" --timeout=5m
+  kubectl -n backup wait resticapplication/backup-restic \
+    --for=condition=Stopped --timeout=5m
+  APPLICATION=$(kubectl -n backup get resticapplication backup-restic -o json)
+  printf '%s\n' "$APPLICATION" | jq -e '
+      .metadata.generation as $generation |
+      .spec.replicas == 0 and
+      .status.state == "Stopped" and
+      .status.observedGeneration == $generation and
+      any(.status.conditions[]?;
+        .type == "Stopped" and .status == "True" and
+        .observedGeneration == $generation)
+    ' >/dev/null
+
+  kubectl -n backup delete resticapplication backup-restic \
+    --wait=true --timeout=3m
+  helm uninstall backup -n backup --wait --timeout=3m
+
+  kubectl -n backup get pvc repository
+  kubectl -n backup get secret repository-tls repository-key \
+    records-repository-auth records-repository-admin
+)
+```
+
+The subshell stops on any failed check or timeout. Keep the controller running and inspect application status, Pods and controller logs before continuing; never remove finalizers to force completion. An unavailable API or incomplete drainage is not permission to uninstall.
+
+This removes application/controller resources, not the operator-owned PVC, repository data or Secrets, including any secondary credentials. Keep those inputs for recovery or reinstallation. The shared CRD also remains installed. Namespace deletion is a separate destructive action: it deletes the retained PVC and Secrets and may destroy the storage contents according to the StorageClass reclaim policy. It is not part of this uninstall procedure.
+
 ### Scheduled replication
 
 Configure each destination in the primary endpoint's customer Helm values. Each entry creates an independent CronJob; consuming applications continue publishing only to the primary endpoint.
@@ -290,7 +332,7 @@ node tests/replication.mjs
 node tests/observation.mjs
 ```
 
-Each runner creates its own namespace and deletes it on success. Failures retain diagnostics and print the namespace cleanup command. The runners do not provision infrastructure or establish provider cleanup or cost; the operator must delete the lab, verify removal and record the budget outcome. Use Hetzner for these tests; Colima or local Docker requires explicit permission. The controller/worker image must already be accessible to the cluster; a lab may build it on its Hetzner host and import it into containerd instead of publishing it.
+Each runner creates its own namespace. Successful teardown finalizes each stopped application before uninstalling Helm, then separately destroys the disposable fixture namespace and its data. Failures retain diagnostics and direct the operator to the supported uninstall procedure. The runners do not provision infrastructure or establish provider cleanup or cost; the operator must delete the lab, verify removal and record the budget outcome. Use Hetzner for these tests; Colima or local Docker requires explicit permission. The controller/worker image must already be accessible to the cluster; a lab may build it on its Hetzner host and import it into containerd instead of publishing it.
 
 The observation runner verifies API isolation from the endpoint's own network namespace while authenticated client traffic remains available. Its disposable IPv4 fixture requires enforced egress NetworkPolicy, read access to the API Service/EndpointSlices and node addresses, and permission to attach a temporary root API probe with `NET_ADMIN`. The probe installs namespace-local API rejection rules because CNI policy can preserve established connections; the policy also covers replacement Pods. It requires actual API request failure and the running guard's observation-failure log before accepting the outage. The same runner checks real ServiceAccount permissions, fresh-process admission and direct-to-Pod nginx connection drainage using a native Restic pack. It writes only raw diagnostics outside Git.
 
@@ -299,6 +341,16 @@ Run output stays outside the checkout in a private temporary directory by defaul
 Source provenance captures run-start Git HEAD, dirty state and SHA-256 of the chart, controller/worker, dependency, image-build and test files. A run with uncommitted changes qualifies those recorded bytes, not HEAD alone. Run focused native boundary regressions with `go test ./...`; check output isolation, compact-record selection and provenance with `node --test tests/artifacts.test.mjs`. The cluster scenarios, not those unit tests, establish service behavior.
 
 Keep run artifacts outside Git. Put the concise verification result, tested version, material limits and provider cleanup/budget outcome in the integration description. Do not add per-session evidence files, raw transcripts, Kubernetes object dumps or nested regression records to Git. Existing historical records remain available without rewriting history.
+
+To exercise supported uninstall against the published artifacts, use the `CHART` and `IMAGE` references from the installation section on an authorized disposable Hetzner cluster:
+
+```sh
+BARTL_RESTIC_LAB=hetzner KUBECONFIG=/private/lab-kubeconfig \
+  BARTL_RESTIC_CHART="$CHART" BARTL_RESTIC_IMAGE="$IMAGE" \
+  node tests/uninstall.mjs
+```
+
+This regression verifies finalization with the controller alive, PVC/Secret preservation, byte-correct restore after reinstallation, and separate namespace destruction afterward. It emits assertions and external redacted raw logs only, not a qualification report.
 
 ## Release maintenance and licensing
 
