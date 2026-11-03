@@ -1,5 +1,5 @@
-# Published 0.2.0 controller and native worker, linux/amd64.
-image: ghcr.io/bartlapp/bartl-restic-controller@sha256:3bbc370143d7d6363522643bb9c1f71b634176512696040669b5a3168a086446
+# Published 0.2.1 controller and native worker, linux/amd64.
+image: ghcr.io/bartlapp/bartl-restic-controller@sha256:3ee7994268a23b4beff8a10d6ecc77c13471baa7d4f9e073c4a8dad852deb757
 application:
   replicas: 1
 # Existing claim; this chart never creates or deletes repository storage.
