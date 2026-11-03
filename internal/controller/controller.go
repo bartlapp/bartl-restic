@@ -82,13 +82,18 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 			return again, err
 		}
 		if !drained {
-			return again, r.status(ctx, a, "Stopping", "Waiting for all PVC users to terminate")
+			return again, r.status(ctx, a, "Stopping", "Waiting for owned workloads and required PVC users to terminate")
+		}
+		if a.Status.Operation != nil && a.Status.Operation.Result == "Succeeded" {
+			// A completed stop ends this admission. Offline changes must pass a
+			// fresh native observation before the endpoint can serve again.
+			a.Status.Operation = nil
 		}
 		if !a.DeletionTimestamp.IsZero() {
 			a.Finalizers = remove(a.Finalizers, finalizer)
 			return ctrl.Result{}, r.Update(ctx, a)
 		}
-		if err := r.status(ctx, a, "Stopped", "Stop intent is durable; no active PVC Pods remain"); err != nil {
+		if err := r.status(ctx, a, "Stopped", "Stop intent is durable; required workload drainage is complete"); err != nil {
 			return again, err
 		}
 		if contains(a.Finalizers, finalizer) {
