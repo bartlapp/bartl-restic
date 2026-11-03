@@ -55,6 +55,29 @@ Each declared repository has one URL, `rest:https://HOST/REPOSITORY/`, and its o
 
 Native locks coordinate cooperative Restic clients. A holder of reader or writer credentials can delete lock objects; locks are not protection against a malicious credential holder. Neither the chart nor maintenance disables consumers or automatically unlocks a repository.
 
+### Published release 0.2.0
+
+Install the published Helm chart and combined controller/worker image; no source checkout or build is required. The image supports `linux/amd64`. Retain these immutable references with the installation configuration:
+
+```sh
+CHART=oci://ghcr.io/bartlapp/bartl-restic@sha256:aeaa22dd009fd505c86049de285c81e0a44ab68640f528dc297d6d67efd306de
+IMAGE=ghcr.io/bartlapp/bartl-restic-controller@sha256:3bbc370143d7d6363522643bb9c1f71b634176512696040669b5a3168a086446
+```
+
+The chart already pins this image; no image override is needed. Version tags are `0.2.0`, but installation and upgrades below use the chart digest. The chart archive SHA-256 is `fc01a8c1d97c35601a5828a645a9230998b18122a6fa7b88c735d340e333d209`.
+
+Use Helm 4.3.0, a cluster-compatible kubectl and OpenSSL. The cluster needs amd64 nodes, registry egress, an existing writable ReadWriteOnce PVC, and permissions to install the cluster-scoped `ResticApplication` CRD and namespaced resources. Enforce NetworkPolicy through the cluster CNI. Supply TLS and DNS/routing for the endpoint as described below.
+
+Select the intended kubeconfig/context before running these commands. Prepare namespace `backup` and check the operator-owned claim named `repository`:
+
+```sh
+kubectl config current-context
+kubectl create namespace backup --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n backup get pvc repository
+```
+
+For a new installation, create that claim using the installation's StorageClass and capacity before continuing. Do not reuse a claim owned by another active installation. Preserve the claim and all protected inputs when uninstalling the chart.
+
 ### Install inputs
 
 Supply an empty PVC for a new installation or replacement, or the intact claim for a normal restart. Every repository declaration needs its own authentication Secret and a `passwordSecret` containing the independently retained Restic encryption `password`. No manual initialization, recovery-mode flag or second technical release command is required. The controller withholds ordinary access while the native worker observes, initializes or reconstructs repositories, verifies the result and then starts the protected endpoint.
@@ -95,9 +118,7 @@ Keep these files outside Git. Consumer writer/reader Secrets need their matching
 Example customer values (`endpoint-values.yaml`, no passwords):
 
 ```yaml
-# Build and retain this package's controller/worker image in your approved registry.
-# Select the resulting immutable reference, not a moving tag.
-image: registry.example.org/backup/bartl-restic@sha256:RETAINED_IMAGE_DIGEST
+# The published chart supplies its digest-pinned controller/worker image.
 application:
   replicas: 1
 existingClaim: repository
@@ -106,18 +127,20 @@ repositories:
   - name: records
     authSecret: records-repository-auth
     passwordSecret: repository-key
-    # Omit only if this installation has no secondary recovery source.
-    recovery:
-      host: secondary.example.org
-      repository: records
-      credentialsSecret: secondary-reader
+    # Add only when an independently retained secondary is configured:
+    # recovery:
+    #   host: secondary.example.org
+    #   repository: records
+    #   credentialsSecret: secondary-reader
 ```
 
 ```sh
-helm upgrade --install backup ./chart -n backup -f endpoint-values.yaml
+helm upgrade --install backup "$CHART" -n backup -f endpoint-values.yaml \
+  --wait=legacy --timeout=5m
 kubectl -n backup wait --for=condition=Ready resticapplication/backup-restic --timeout=30m
 kubectl -n backup get resticapplication backup-restic -o json
-kubectl -n backup logs job/SELECTED_LIFECYCLE_JOB
+JOB=$(kubectl -n backup get resticapplication backup-restic -o jsonpath='{.status.operation.jobName}')
+kubectl -n backup logs "job/$JOB"
 kubectl -n backup get service backup-restic
 ```
 
@@ -125,20 +148,35 @@ Provide DNS/routing for the TLS hostname to this Service; the chart does not pro
 
 Require `status.observedGeneration` and the selected condition's `observedGeneration` to equal live `metadata.generation`. `Ready=True` reports the current running endpoint, `Stopped=True` reports drained application work, and `Failed=True` retains a refused or interrupted lifecycle. A successful Helm invocation is not lifecycle completion; with Helm 4 use `--wait=legacy` for controller infrastructure and inspect application status separately. `status.operation` binds the admitted Job, application/PVC ownership, initiating generation and input hash; stale or missing execution results cannot open access.
 
-The supplied `Dockerfile` builds the controller and worker from this checkout. Build it on an authorized build host, retain the image and exact source version independently, and install its immutable reference. No published controller image is implied by this source package. Qualification below imports its locally built image into a disposable Hetzner cluster without publishing it.
+The CRD is included in the published chart. Helm installs a missing CRD but does not upgrade an existing definition. Before a package upgrade, extract the selected published chart and explicitly apply its CRD:
 
-Upgrading the former endpoint-only chart is an ownership cutover with interruption: retain the PVC/Secrets, add each repository's `passwordSecret` and the package image reference, apply `chart/crds/`, then upgrade. Helm removes the old directly rendered endpoint resources; the controller recreates them only after native admission. Do not run the old release or another controller against the same claim. CRD changes require explicit `kubectl apply -f chart/crds/`; Helm does not upgrade installed CRDs.
+```sh
+PACKAGE_DIR=$(mktemp -d)
+helm pull "$CHART" --untar --untardir "$PACKAGE_DIR"
+kubectl apply -f "$PACKAGE_DIR/bartl-restic/crds/"
+```
+
+Upgrading the former endpoint-only chart is an ownership cutover with interruption: retain the PVC/Secrets, add each repository's `passwordSecret`, apply the selected CRD, then upgrade. Helm removes the old directly rendered endpoint resources; the controller recreates them only after native admission. Do not run the old release or another controller against the same claim.
 
 ### Durable stop and replacement
 
 Set run/stop intent through Helm, not by scaling generated Deployments:
 
 ```sh
-helm upgrade backup ./chart -n backup -f endpoint-values.yaml \
+helm upgrade backup "$CHART" -n backup -f endpoint-values.yaml \
   --set application.replicas=0
 kubectl -n backup wait --for=condition=Stopped resticapplication/backup-restic --timeout=5m
 kubectl -n backup get resticapplication backup-restic -o json
 kubectl -n backup get pods,jobs,cronjobs
+```
+
+To resume this installation, retain `application.replicas: 1` in its values and use the same package:
+
+```sh
+helm upgrade backup "$CHART" -n backup -f endpoint-values.yaml \
+  --set application.replicas=1
+kubectl -n backup wait --for=condition=Ready resticapplication/backup-restic --timeout=30m
+kubectl -n backup get resticapplication backup-restic -o json
 ```
 
 Retain `application.replicas: 0` in the old installation's versioned values. The controller withdraws serving, suspends new copy admission, scales the endpoint down and gracefully terminates running lifecycle/copy work. Every endpoint process requires fresh successful application and live-PVC admission before nginx starts. An observed stop, revoked ownership, changed identity, deletion or withdrawn successful admission terminates serving through SIGQUIT. Lifecycle and replication workers retain their fail-closed observation policy and receive SIGINT on cancellation. A bounded kill is a last resort after cancellation, not an expiry of serving permission.
@@ -218,7 +256,7 @@ The optional Job accepts only `check` (full `check --read-data`) or `forget-prun
 
 ```sh
 # Generate only the Job from the same endpoint values.
-helm template backup ./chart -n backup -f endpoint-values.yaml \
+helm template backup "$CHART" -n backup -f endpoint-values.yaml \
   --set maintenance.enabled=true --set maintenance.name=check-20261102 \
   --set maintenance.repository=records --set maintenance.action=check \
   --set maintenance.host=backup-restic.backup.svc \
@@ -261,6 +299,19 @@ Run output stays outside the checkout in a private temporary directory by defaul
 Source provenance captures run-start Git HEAD, dirty state and SHA-256 of the chart, controller/worker, dependency, image-build and test files. A run with uncommitted changes qualifies those recorded bytes, not HEAD alone. Run focused native boundary regressions with `go test ./...`; check output isolation, compact-record selection and provenance with `node --test tests/artifacts.test.mjs`. The cluster scenarios, not those unit tests, establish service behavior.
 
 Keep run artifacts outside Git. Put the concise verification result, tested version, material limits and provider cleanup/budget outcome in the integration description. Do not add per-session evidence files, raw transcripts, Kubernetes object dumps or nested regression records to Git. Existing historical records remain available without rewriting history.
+
+## Release maintenance and licensing
+
+Follow the Bartl publication convention: public OCI packages under `ghcr.io/bartlapp`, independent of private source-repository access. Never overwrite a released image or chart version, change existing visibility or alter team access as part of a release.
+
+1. Inspect live Codeberg repository policy/access and GitHub organization/package authority before remote writes. Registry publication requires `write:packages`; new GHCR packages need explicit public-visibility approval and an administrator to complete that setting.
+2. Commit release changes separately. Build the combined image from the committed source on an authorized Hetzner host using `Dockerfile`, `--platform linux/amd64`, `--provenance=false`, `--build-arg VERSION=VERSION` and `--build-arg REVISION=FULL_SOURCE_SHA`. Retain the source archive and OCI image archive outside Git.
+3. Set the chart version and pin its default image to the retained manifest digest. Stage a copy of `chart/` with root `LICENSE` and `NOTICE` included, then `helm package` that directory. Retain the chart archive and SHA-256. The published 0.2.0 archive includes those notices and `crds/resticapplications.yaml`.
+4. Publish the retained image with digest preservation and the retained chart to `oci://ghcr.io/bartlapp`. Use isolated temporary registry credentials and remove them afterward. Do not rebuild or repackage between verification and publication.
+5. With empty registry credentials, acquire the complete chart and image, verify archive/manifest identities, then smoke-install the published chart on a disposable Hetzner cluster. Verify current-generation startup, authenticated backup/restore, stop/start and actual runtime image IDs against the published digest.
+6. Put artifact identities, concise verification, material limits and provider cleanup/budget outcome in the release/integration description. Integrate through the permitted Codeberg workflow without squashing; keep raw logs outside Git and delete disposable infrastructure.
+
+Original code and configuration use [Apache-2.0](LICENSE); documentation and methodology use CC-BY-4.0 as stated in [NOTICE](NOTICE). The image contains project and linked dependency notices under `/usr/share/licenses/bartl-restic/`; upstream components retain their own terms.
 
 ## Sources
 
