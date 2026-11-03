@@ -8,6 +8,7 @@ import { mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createArtifactDirectory, snapshotSource, persistArtifacts, failureReason } from './artifacts.mjs';
+import { uninstallStoppedApplication } from './removal.mjs';
 
 if (process.env.BARTL_RESTIC_LAB !== 'hetzner' || !process.env.KUBECONFIG) {
   console.error('Require BARTL_RESTIC_LAB=hetzner and KUBECONFIG for a dedicated Hetzner K3s cluster. No infrastructure is created.');
@@ -62,7 +63,9 @@ async function until(name, check, milliseconds = 120000) {
 async function applicationState(state) {
   return until(`current application ${state}`, () => {
     const app = JSON.parse(kubectl(['get', 'resticapplication', endpoint, '-o', 'json'], { record: false }).stdout);
-    return app.status?.state === state && app.status.observedGeneration === app.metadata.generation ? app : null;
+    const condition = app.status?.conditions?.find(condition => condition.type === state);
+    return app.status?.state === state && app.status.observedGeneration === app.metadata.generation
+      && condition?.status === 'True' && condition.observedGeneration === app.metadata.generation ? app : null;
   }, 600000);
 }
 async function replicas(value) {
@@ -257,11 +260,12 @@ try {
   evidence.status = 'passed';
   if (process.env.BARTL_RESTIC_KEEP_NAMESPACE !== '1') {
     await replicas(0);
+    uninstallStoppedApplication({ command, namespace, release });
     kubectl(['delete', 'namespace', namespace, '--wait=true', '--timeout=3m'], { timeout: 210000 });
     evidence.cleanup = 'owned namespace deleted';
     evidence.namespaceCleanup = 'deleted';
   } else {
-    evidence.cleanup = `retained by request; kubectl --namespace ${namespace} delete namespace ${namespace}`;
+    evidence.cleanup = 'retained by request; follow README.md supported uninstall before separate destructive namespace cleanup';
     evidence.namespaceCleanup = 'retained-by-request';
   }
 } catch (error) {
@@ -276,7 +280,7 @@ try {
     exec('restic', 'test ! -f /tmp/held.log || tail -c 16000 /tmp/held.log', { allowFailure: true });
   }
   evidence.cleanup = owned
-    ? `failure retained diagnostics and namespace; inspect raw.json, then kubectl --namespace ${namespace} delete namespace ${namespace}`
+    ? 'failure retained diagnostics and namespace; inspect raw.json, then follow README.md supported uninstall before separate destructive namespace cleanup'
     : 'namespace was not created; no namespace cleanup required';
   process.exitCode = 1;
 } finally {

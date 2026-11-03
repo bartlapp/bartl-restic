@@ -7,6 +7,7 @@ import { mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createArtifactDirectory, snapshotSource, persistArtifacts, failureReason } from './artifacts.mjs';
+import { uninstallStoppedApplication } from './removal.mjs';
 
 if (process.env.BARTL_RESTIC_LAB !== 'hetzner' || !process.env.KUBECONFIG) {
   console.error('Require BARTL_RESTIC_LAB=hetzner and KUBECONFIG for a dedicated disposable Hetzner K3s cluster. No infrastructure is created.');
@@ -63,7 +64,9 @@ async function until(name, check, milliseconds = 120000) {
 async function applicationState(name, state) {
   return until(`${name} current application ${state}`, () => {
     const app = JSON.parse(kubectl(['get', 'resticapplication', `${name}-restic`, '-o', 'json'], { record: false }).stdout);
-    return app.status?.state === state && app.status.observedGeneration === app.metadata.generation ? app : null;
+    const condition = app.status?.conditions?.find(condition => condition.type === state);
+    return app.status?.state === state && app.status.observedGeneration === app.metadata.generation
+      && condition?.status === 'True' && condition.observedGeneration === app.metadata.generation ? app : null;
   }, 600000);
 }
 async function stop(name) {
@@ -233,7 +236,7 @@ try {
   assert('recovery binds retained full secondary ID', /^[a-f0-9]{64}$/.test(selected), { selected, source: first.id });
   suspend(true); await idle();
   await stop('primary');
-  command('helm', ['uninstall', 'primary', '--namespace', namespace, '--wait', '--timeout', '3m'], { timeout: 210000 });
+  uninstallStoppedApplication({ command, namespace, release: 'primary' });
   kubectl(['delete', 'pod', 'primary-client', '--wait=true']);
   kubectl(['delete', 'pvc', 'primary-data', '--wait=true', '--timeout=2m'], { timeout: 150000 });
   kubectl(['delete', 'secret', 'source-key', 'primary-key', 'primary-writer', 'primary-reader', 'primary-admin', 'primary-auth', 'primary-tls']);
@@ -250,11 +253,12 @@ try {
   evidence.status = 'passed';
   if (process.env.BARTL_RESTIC_KEEP_NAMESPACE !== '1') {
     await stop('secondary');
+    uninstallStoppedApplication({ command, namespace, release: 'secondary' });
     kubectl(['delete', 'namespace', namespace, '--wait=true', '--timeout=3m'], { timeout: 210000 });
     evidence.cleanup = 'owned namespace deleted';
     evidence.namespaceCleanup = 'deleted';
   } else {
-    evidence.cleanup = `retained by request; kubectl --namespace ${namespace} delete namespace ${namespace}`;
+    evidence.cleanup = 'retained by request; follow README.md supported uninstall before separate destructive namespace cleanup';
     evidence.namespaceCleanup = 'retained-by-request';
   }
 } catch (error) {
@@ -267,7 +271,7 @@ try {
     for (const endpoint of ['primary', 'secondary']) exec(`${endpoint}-client`, 'test ! -f /tmp/check.log || cat /tmp/check.log', { allowFailure: true });
   }
   evidence.cleanup = owned
-    ? `failure retained diagnostics and namespace; inspect raw.json, then kubectl --namespace ${namespace} delete namespace ${namespace}`
+    ? 'failure retained diagnostics and namespace; inspect raw.json, then follow README.md supported uninstall before separate destructive namespace cleanup'
     : 'namespace was not created; no namespace cleanup required';
   process.exitCode = 1;
 } finally {

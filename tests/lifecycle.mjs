@@ -7,6 +7,7 @@ import { mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createArtifactDirectory, snapshotSource, persistArtifacts, failureReason } from './artifacts.mjs';
+import { uninstallStoppedApplication } from './removal.mjs';
 
 if (process.env.BARTL_RESTIC_LAB !== 'hetzner' || !process.env.KUBECONFIG) {
   console.error('Require BARTL_RESTIC_LAB=hetzner and KUBECONFIG; no infrastructure is created.'); process.exit(2);
@@ -52,7 +53,9 @@ const app = name => get('resticapplication', `${name}-restic`, { record: false }
 async function state(name, expected, timeout = 600000) {
   return until(`${name} current generation ${expected}`, () => {
     const object = app(name);
-    return object.status?.state === expected && object.status.observedGeneration === object.metadata.generation ? object : null;
+    const condition = object.status?.conditions?.find(condition => condition.type === expected);
+    return object.status?.state === expected && object.status.observedGeneration === object.metadata.generation
+      && condition?.status === 'True' && condition.observedGeneration === object.metadata.generation ? object : null;
   }, timeout);
 }
 function patch(name, spec) { k(['patch', 'resticapplication', `${name}-restic`, '--field-manager=helm', '--type=merge', '-p', JSON.stringify({ spec })]); }
@@ -175,7 +178,7 @@ async function inspectVolume(name, shell) {
 }
 async function remove(name) {
   await stop(name);
-  command('helm', ['uninstall', name, '--namespace', namespace, '--wait', '--timeout', '3m'], { timeout: 210000 });
+  uninstallStoppedApplication({ command, namespace, release: name });
   k(['delete', 'pod', `${name}-client`, '--ignore-not-found', '--wait=true']);
   k(['delete', 'pvc', `${name}-data`, '--wait=true', '--timeout=3m'], { timeout: 210000 });
   k(['delete', 'secret', ...['auth', 'key', 'tls', 'reader', 'writer', 'admin'].map(suffix => `${name}-${suffix}`)]);
@@ -344,7 +347,11 @@ try {
   evidence.status = 'passed';
   if (process.env.BARTL_RESTIC_KEEP_NAMESPACE === '1') evidence.namespaceCleanup = 'retained-by-request';
   else {
-    for (const object of get('resticapplications').items) await stop(object.metadata.name.replace(/-restic$/, ''));
+    for (const object of get('resticapplications').items) {
+      const name = object.metadata.name.replace(/-restic$/, '');
+      await stop(name);
+      uninstallStoppedApplication({ command, namespace, release: name });
+    }
     k(['delete', 'namespace', namespace, '--wait=true', '--timeout=3m'], { timeout: 210000 }); evidence.namespaceCleanup = 'deleted';
   }
 } catch (error) {
@@ -359,5 +366,5 @@ try {
   rmSync(privateDir, { recursive: true, force: true }); evidence.finished = new Date().toISOString(); persist();
   console.log(`Qualification: ${join(directory, 'qualification.json')}`);
   console.log(`Private diagnostics: ${join(directory, 'raw.json')}`);
-  if (owned && evidence.namespaceCleanup !== 'deleted') console.log(`Retained namespace: ${namespace}`);
+  if (owned && evidence.namespaceCleanup !== 'deleted') console.log(`Retained namespace: ${namespace}; inspect private raw.json, then follow README.md supported uninstall before separate destructive namespace cleanup.`);
 }
