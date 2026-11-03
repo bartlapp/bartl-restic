@@ -1,0 +1,35 @@
+Bartl Restic
+Copyright (c) 2026 Florian Kessler GmbH
+
+Original project code and configuration are licensed under the Apache License,
+Version 2.0. See LICENSE for the full license text.
+
+Original project documentation and methodology are licensed under Creative
+Commons Attribution 4.0 International (CC-BY-4.0):
+https://creativecommons.org/licenses/by/4.0/
+Legal terms: https://creativecommons.org/licenses/by/4.0/legalcode
+For attribution, identify Bartl Restic and Florian Kessler GmbH, retain the
+license link, and indicate any changes.
+
+Third-party components retain their own licenses and copyright notices; the
+project licenses do not replace those terms.
+
+Container distributions include project LICENSE and NOTICE under
+/usr/share/licenses/bartl-restic/. The go/ subdirectory contains license and
+NOTICE files collected for the linked controller and worker Go packages by
+google/go-licenses v2.0.1. The golang/ subdirectory retains the Go runtime
+license and patent notice for those binaries.
+
+The image retains the unmodified Restic binary from its pinned upstream
+restic/restic:0.19.1 linux/amd64 container. Its embedded build information
+identifies Go 1.26.4, CGO_ENABLED=0 and the build tags selfupdate and
+disable_grpc_modules. The restic/ subdirectory contains Restic's license and
+dependency notices collected from the corresponding v0.19.1 upstream Go module
+using that toolchain, target and build tags, plus the Go runtime notices.
+restic-build.txt records the container binary's embedded Go build information.
+The Dockerfile pins the exact upstream runtime manifest; it does not replace
+the container binary with a separately downloaded release executable.
+
+Upstream base-image license and copyright files remain at their original paths.
+The OCI license label identifies the original Bartl code license, not a
+relicensing of the complete base image or its third-party components.
