@@ -237,7 +237,9 @@ Retain `application.replicas: 0` in `endpoint-values.yaml`, and prevent another 
 
 The subshell stops on any failed check or timeout. Keep the controller running and inspect application status, Pods and controller logs before continuing; never remove finalizers to force completion. An unavailable API or incomplete drainage is not permission to uninstall.
 
-This removes application/controller resources, not the operator-owned PVC, repository data or Secrets, including any secondary credentials. Keep those inputs for recovery or reinstallation. The shared CRD also remains installed. Namespace deletion is a separate destructive action: it deletes the retained PVC and Secrets and may destroy the storage contents according to the StorageClass reclaim policy. It is not part of this uninstall procedure.
+This removes application/controller resources, not the operator-owned PVC, repository data or Secrets, including any secondary credentials. Keep those inputs for recovery. In 0.2.0, the retained PVC still carries the former application's UID binding; a new application cannot directly adopt it. Uninstall does not release that ownership, and clearing the binding is not part of this procedure. The retained repository remains readable with native Restic and its encryption key.
+
+The shared CRD also remains installed. Namespace deletion is a separate destructive action: it deletes the retained PVC and Secrets and may destroy the storage contents according to the StorageClass reclaim policy. It is not part of this uninstall procedure.
 
 ### Scheduled replication
 
@@ -350,7 +352,7 @@ BARTL_RESTIC_LAB=hetzner KUBECONFIG=/private/lab-kubeconfig \
   node tests/uninstall.mjs
 ```
 
-This regression verifies finalization with the controller alive, PVC/Secret preservation, byte-correct restore after reinstallation, and separate namespace destruction afterward. It emits assertions and external redacted raw logs only, not a qualification report.
+This regression verifies finalization with the controller alive, PVC/Secret preservation, a full native repository check and byte-correct restore from retained storage after uninstall, and separate namespace destruction afterward. It emits assertions and external redacted raw logs only, not a qualification report.
 
 ## Release maintenance and licensing
 

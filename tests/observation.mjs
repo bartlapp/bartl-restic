@@ -9,6 +9,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createArtifactDirectory, snapshotSource, failureReason } from './artifacts.mjs';
 import { qualifyDrain } from './endpoint-drain.mjs';
+import { uninstallStoppedApplication } from './removal.mjs';
 
 if (process.env.BARTL_RESTIC_LAB !== 'hetzner' || !process.env.KUBECONFIG || !process.env.BARTL_RESTIC_IMAGE) {
   console.error('Require BARTL_RESTIC_LAB=hetzner, KUBECONFIG and BARTL_RESTIC_IMAGE; no infrastructure is created.'); process.exit(2);
@@ -52,7 +53,10 @@ function assert(name, condition, details = {}) {
 const app = () => get('resticapplication', 'primary-restic', { record: false });
 async function state(expected) {
   return until(`primary current-generation ${expected}`, () => {
-    const object = app(); return object.status?.state === expected && object.status.observedGeneration === object.metadata.generation && object;
+    const object = app();
+    const condition = object.status?.conditions?.find(condition => condition.type === expected);
+    return object.status?.state === expected && object.status.observedGeneration === object.metadata.generation
+      && condition?.status === 'True' && condition.observedGeneration === object.metadata.generation ? object : null;
   }, 600000);
 }
 const endpointPods = () => get('pods', null, { record: false }).items.filter(pod => pod.metadata.labels?.['app.kubernetes.io/name'] === 'primary-restic' && !pod.metadata.deletionTimestamp);
@@ -227,6 +231,7 @@ try {
   await state('Ready');
   await qualifyDrain({ k, get, shell, assert, until, namespace, name: 'primary', host, stopController, startController });
   await state('Stopped');
+  uninstallStoppedApplication({ command, namespace, release: 'primary' });
   k(['delete', 'namespace', namespace, '--wait=true', '--timeout=3m'], { timeout: 210000 }); evidence.namespaceCleanup = 'deleted'; evidence.status = 'passed';
 } catch (error) {
   evidence.status = 'failed'; evidence.failure = redact(error.stack || error); evidence.failureSummary = failureReason(error); process.exitCode = 1;
@@ -242,5 +247,5 @@ try {
 } finally {
   rmSync(privateDir, { recursive: true, force: true }); evidence.finished = new Date().toISOString(); persist();
   console.log(`${evidence.status === 'passed' ? 'PASS' : 'FAIL'}: observation runtime; private diagnostics: ${join(directory, 'raw.json')}`);
-  if (owned && evidence.namespaceCleanup !== 'deleted') console.log(`Retained namespace: ${namespace}`);
+  if (owned && evidence.namespaceCleanup !== 'deleted') console.log(`Retained namespace: ${namespace}; inspect private raw.json, then follow README.md supported uninstall before separate destructive namespace cleanup.`);
 }
