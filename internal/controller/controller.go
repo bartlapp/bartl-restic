@@ -347,6 +347,7 @@ func (r *Reconciler) drain(ctx context.Context, a *api.ResticApplication) (bool,
 	if err := r.List(ctx, jobs, client.InNamespace(a.Namespace)); err != nil {
 		return false, err
 	}
+	ownedJobs := map[types.UID]bool{}
 	for i := range jobs.Items {
 		j := &jobs.Items[i]
 		owned := metav1.IsControlledBy(j, a)
@@ -356,6 +357,9 @@ func (r *Reconciler) drain(ctx context.Context, a *api.ResticApplication) (bool,
 					owned = true
 				}
 			}
+		}
+		if owned {
+			ownedJobs[j.UID] = true
 		}
 		if owned && j.Status.Succeeded == 0 && j.Status.Failed == 0 && j.DeletionTimestamp == nil {
 			if err := r.Delete(ctx, j, client.PropagationPolicy(metav1.DeletePropagationForeground)); err != nil && !apierrors.IsNotFound(err) {
@@ -367,6 +371,7 @@ func (r *Reconciler) drain(ctx context.Context, a *api.ResticApplication) (bool,
 	if err := r.List(ctx, replicaSets, client.InNamespace(a.Namespace)); err != nil {
 		return false, err
 	}
+	ownedReplicaSets := map[types.UID]bool{}
 	for _, rs := range replicaSets.Items {
 		owner := metav1.GetControllerOf(&rs)
 		// A deleted Deployment can leave an old ReplicaSet briefly able to create
@@ -374,10 +379,18 @@ func (r *Reconciler) drain(ctx context.Context, a *api.ResticApplication) (bool,
 		if owner == nil || owner.Kind != "Deployment" || owner.Name != a.Name {
 			continue
 		}
+		ownedReplicaSets[rs.UID] = true
 		if rs.Spec.Replicas == nil || *rs.Spec.Replicas != 0 || rs.Status.ObservedGeneration < rs.Generation || rs.Status.Replicas != 0 {
 			settled = false
 		}
 	}
+	// Only the current claim owner must wait for unrelated users of the PVC.
+	// A rejected claimant must still drain its own resources and Pod chains.
+	pvc := new(corev1.PersistentVolumeClaim)
+	if err := r.Get(ctx, r.key(a.Spec.ExistingClaim), pvc); err != nil && !apierrors.IsNotFound(err) {
+		return false, err
+	}
+	ownsClaim := pvc.Annotations[claimOwner] == string(a.UID)
 	pods := new(corev1.PodList)
 	if err := r.List(ctx, pods, client.InNamespace(a.Namespace)); err != nil {
 		return false, err
@@ -386,8 +399,18 @@ func (r *Reconciler) drain(ctx context.Context, a *api.ResticApplication) (bool,
 		if p.Status.Phase == corev1.PodSucceeded || p.Status.Phase == corev1.PodFailed {
 			continue
 		}
+		ownPod := metav1.IsControlledBy(&p, a) || p.Labels[appLabel] == a.Name || p.Labels["app.kubernetes.io/name"] == a.Name
+		if owner := metav1.GetControllerOf(&p); owner != nil {
+			ownPod = ownPod || owner.Kind == "Job" && ownedJobs[owner.UID] || owner.Kind == "ReplicaSet" && ownedReplicaSets[owner.UID]
+		}
+		if op := a.Status.Operation; op != nil {
+			ownPod = ownPod || op.ID != "" && p.Labels[operationLabel] == op.ID || op.JobName != "" && (p.Labels["job-name"] == op.JobName || p.Labels["batch.kubernetes.io/job-name"] == op.JobName)
+		}
+		if ownPod {
+			return false, nil
+		}
 		for _, v := range p.Spec.Volumes {
-			if v.PersistentVolumeClaim != nil && v.PersistentVolumeClaim.ClaimName == a.Spec.ExistingClaim {
+			if ownsClaim && v.PersistentVolumeClaim != nil && v.PersistentVolumeClaim.ClaimName == a.Spec.ExistingClaim {
 				return false, nil
 			}
 		}
