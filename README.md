@@ -1,28 +1,22 @@
 # Bartlized Restic backend
 
-This repository packages an authenticated Restic HTTPS endpoint on existing Kubernetes storage under the [Bartl application contract](../bartl-app/README.md#portable-recovery-artifact-and-storage-boundary). [ADR-11](../../floriankesslergmbh/floriankesslergmbh/adr/ADR-11-Uebergebbare-Backup-Architektur/README.md) selects Restic and defines the backup and handover requirements for the reference installation.
+This package exposes authenticated Restic HTTPS endpoints on existing Kubernetes storage under the [Bartl application contract](https://codeberg.org/bartlapp/bartl-app/src/branch/main/docs/application-contract.md#portable-recovery-artifact-and-storage-boundary). [ADR-11](../../floriankesslergmbh/floriankesslergmbh/adr/ADR-11-Uebergebbare-Backup-Architektur/README.md) selects Restic and defines the reference installation's backup and handover requirements.
 
 ## Service and state boundary
 
-The service exposes authenticated Restic REST endpoints using `rest-server`. It owns repository storage, access protection, retention, replication and its own recovery. It does not know which applications consume its endpoints and does not capture, stop or reconstruct those applications. Any required exclusion between repository operations belongs at the repository-access boundary, not in application-specific integrations.
-
-Each consuming application writes to one endpoint. Replication is the backup service's responsibility, not a multi-destination workflow implemented by each consumer. Repositories, encryption keys and access are separated per application.
+The service owns repository storage, access protection, replication and its own recovery; retention is administered through native maintenance. Each application writes to one endpoint with separate repository, encryption key and credentials. The service does not capture or reconstruct consumers. Repository-operation exclusion belongs at the repository-access boundary, not in application-specific integrations.
 
 Mutable state consists of the encrypted Restic repository directories, including their identities and retained snapshot history. The per-customer Git repository holds deployment configuration, pinned software references, repository declarations, access and retention policies, and references to protected credentials. Configuration in Git does not replace repository data. Keys, credentials and configuration must remain available independently of the provider whose loss they cover.
 
 ## Disaster recovery
 
-Loss of one provider must not require reconstruction of the backup service before application recovery can begin. The service maintains an independently usable repository at another provider, exposed through its own endpoint. A retained archive that must first be fully restored into a repository does not meet this objective.
-
-After loss of the primary provider, a replacement application reads its selected recovery point directly from the secondary endpoint using independently available credentials and keys. Rebuilding the lost backup endpoint is a separate operation, not a prerequisite for restoring consumers. Provider names, endpoint URLs and recovery inputs belong in the per-customer configuration.
+Loss of one provider must not require rebuilding the backup endpoint before consumers can recover. Maintain an independently usable repository at another provider, exposed through its own endpoint. A replacement application reads its selected point there with independently retained credentials and keys. An archive that must first be fully restored into a repository is insufficient. Provider names, URLs and recovery inputs belong in customer configuration.
 
 Replication is asynchronous. A recovery point is protected against primary-provider loss only after its secondary copy is complete and verified. The age of the newest usable secondary recovery point determines the recovery-point window; nominal replication frequency alone is not evidence of protection. Primary publication and secondary replication outcomes must remain distinguishable.
 
-The secondary retains history independently. Deletion or compromise at the primary must not automatically erase the secondary's retained history. Repository maintenance and replication must preserve usable recovery points without relying on application-specific coordination.
+The secondary retains history independently; deletion or compromise at the primary must not erase it. Repository and snapshot IDs may differ across providers. Recovery binds a complete, valid, compatible point in the chosen repository, not an assumed primary ID.
 
-Repository and snapshot identities need not be equal across providers. Recovery must select and bind a complete, valid, compatible point in the chosen repository; a primary snapshot ID must not be assumed to identify its secondary copy. Preserving access to the agreed history matters, not byte-identical reconstruction of the lost backend before consumers can recover.
-
-To inspect secondary recovery points or recover repository files, use the secondary reader credentials and full snapshot ID. Application reconstruction follows the consuming application's recovery procedure.
+Inspect secondary points or recover repository files with its reader credentials and full snapshot ID. Application reconstruction follows the consumer's recovery procedure.
 
 ```sh
 export RESTIC_REPOSITORY="rest:https://$SECONDARY_HOST/$REPOSITORY/"
@@ -64,7 +58,7 @@ CHART=oci://ghcr.io/bartlapp/bartl-restic@sha256:78d118df791192bcc8dc08ce7ce13de
 IMAGE=ghcr.io/bartlapp/bartl-restic-controller@sha256:3ee7994268a23b4beff8a10d6ecc77c13471baa7d4f9e073c4a8dad852deb757
 ```
 
-The chart already pins this image; no image override is needed. Version tags are `0.2.1`, but installation and upgrades below use the chart digest. The chart archive SHA-256 is `94293548ac5fd0a86976e4af0e678596a53c8d0144dad1983810cea64c9a4dfc`. Release 0.2.1 adds safe retained-PVC reuse after supported uninstall; 0.2.0 artifacts remain available unchanged.
+The chart pins this image; no override is needed. Version tags are `0.2.1`, but the commands use the chart digest. The archive SHA-256 is `94293548ac5fd0a86976e4af0e678596a53c8d0144dad1983810cea64c9a4dfc`. Release 0.2.1 adds retained-PVC reuse after supported uninstall; 0.2.0 artifacts remain unchanged.
 
 Use Helm 4.3.0, a cluster-compatible kubectl, OpenSSL and jq. The cluster needs amd64 nodes, registry egress, an existing writable ReadWriteOnce PVC, and permissions to install the cluster-scoped `ResticApplication` CRD and namespaced resources. Enforce NetworkPolicy through the cluster CNI. Supply TLS and DNS/routing for the endpoint as described below.
 
@@ -80,9 +74,9 @@ For a new installation, create that claim using the installation's StorageClass 
 
 ### Install inputs
 
-Supply an empty PVC for a new installation or replacement, or the intact claim for a normal restart. Every repository declaration needs its own authentication Secret and a `passwordSecret` containing the independently retained Restic encryption `password`. No manual initialization, recovery-mode flag or second technical release command is required. The controller withholds ordinary access while the native worker observes, initializes or reconstructs repositories, verifies the result and then starts the protected endpoint.
+Supply an empty PVC for a new installation or replacement, or the intact claim for restart. Every repository needs its own authentication Secret and a `passwordSecret` containing its independently retained encryption `password`. The controller withholds access while the native worker observes, initializes or reconstructs and verifies repositories. No manual initialization, recovery flag or second release command is required.
 
-A recovery declaration names an independently accessible HTTPS repository and its reader Secret (`username=reader`, `restPassword`, `password`, `ca.crt`). A missing or unreachable configured repository is an error, not an empty history. Existing local state does not require those recovery credentials or that endpoint. Recovery uses native `init --copy-chunker-params` and `copy`, then full destination `check --read-data` and native snapshot `original`/`tree`/capture-time correspondence to verify every selected retained point. Repository IDs and copied snapshot IDs may change. Ordinary existing-state admission checks native metadata integrity, not a full data scrub.
+A recovery declaration names an independent HTTPS repository and reader Secret (`username=reader`, `restPassword`, `password`, `ca.crt`). Missing or unreachable recovery is an error, not empty history; intact local state needs neither recovery credentials nor that endpoint. Reconstruction uses native `init --copy-chunker-params` and `copy`, full destination `check --read-data` and snapshot `original`/`tree`/capture-time correspondence for every selected point. Ordinary existing-state admission checks metadata integrity, not a full data scrub.
 
 Create the TLS Secret from an operator-provided certificate/key whose SAN covers the chosen endpoint DNS name. Create one htpasswd Secret per repository. For example, from a protected local directory containing the three transport password files and independently retained Restic `password` and CA `ca.crt`:
 
@@ -181,9 +175,9 @@ kubectl -n backup get resticapplication backup-restic -o json
 
 Retain `application.replicas: 0` in the old installation's versioned values. The controller withdraws serving, suspends new copy admission, scales the endpoint down and gracefully terminates running lifecycle/copy work. Every endpoint process requires fresh successful application and live-PVC admission before nginx starts. An observed stop, revoked ownership, changed identity, deletion or withdrawn successful admission terminates serving through SIGQUIT. Lifecycle and replication workers retain their fail-closed observation policy and receive SIGINT on cancellation. A bounded kill is a last resort after cancellation, not an expiry of serving permission.
 
-An already-admitted endpoint continues accepting backups and serving restores when API observation is unavailable. It reports observation failure and keeps checking without changing readiness solely for that failure. A confirmed negative from either the application or its bound PVC takes precedence over an unavailable check of the other. The controller likewise leaves an established endpoint and its configuration unchanged on unavailable observation; it does not claim fresh verification. If the process exits, its replacement must obtain fresh admission and cannot reuse the former process's permission during an outage.
+An already-admitted endpoint continues backups and restores when API observation is unavailable. It reports the failure and keeps checking without changing readiness solely for that failure. A confirmed negative from either the application or bound PVC wins over an unavailable check of the other. The controller leaves the established endpoint and configuration unchanged without claiming fresh verification. A replacement process needs fresh admission; it cannot inherit permission during an outage.
 
-If stop intent changes while the endpoint cannot reach the API, it can continue serving indefinitely unless another working control path terminates it. Request timeouts bound observation attempts, not permission validity. Stop cannot be guaranteed during that partition. Require confirmed drainage or retirement before replacement, not merely a stop request or an unreachable primary. Stop completes only after Deployment and ReplicaSet scale-down is acknowledged and the required active Pods have gone. Cancellation deletes active Jobs and their Pods, so export their logs before stopping if those diagnostics must be retained.
+An API partition can therefore leave the endpoint serving indefinitely unless another control path terminates it. Request timeouts bound observations, not permission validity. Before replacement, require confirmed drainage or retirement, not merely stop intent or an unreachable primary. Stop completes only after acknowledged Deployment/ReplicaSet scale-down and disappearance of required active Pods. Cancellation deletes Jobs and their Pods; export needed logs first.
 
 A completed stop invalidates successful native admission. The next start observes and checks the retained repositories again; ordinary controller or process restarts while running do not reinitialize them. Failed operations remain failed across stop/start. A rejected installation that never acquired the claim can stop or be deleted without stopping its rightful owner.
 
@@ -230,9 +224,7 @@ Confirm repository identity and retained history and restore an old point before
 
 ### Supported uninstall
 
-Remove an installation in this order: stop and confirm current-generation drainage, delete its `ResticApplication` and wait for finalization while its controller is still running, then uninstall the Helm release. Do not delete the namespace, controller or Helm release first: the application needs its controller to complete the drain finalizer.
-
-Retain `application.replicas: 0` in `endpoint-values.yaml`, and prevent another operator or deployment reconciler from reapplying running intent during removal. Export required Job/Pod logs before stopping. With the same `CHART` and installation values used above:
+Stop and confirm current-generation drainage, delete the `ResticApplication` while its controller is running, then uninstall Helm. Keep `application.replicas: 0` in `endpoint-values.yaml` and prevent other operators or reconcilers from restoring running intent. Do not delete the namespace/controller first or bypass finalizers. Export needed logs before stopping. With the same `CHART` and values:
 
 ```sh
 (
@@ -268,11 +260,9 @@ Retain `application.replicas: 0` in `endpoint-values.yaml`, and prevent another 
 
 The subshell stops on any failed check or timeout. Keep the controller running and inspect application status, Pods and controller logs before continuing; never remove finalizers to force completion. An unavailable API or incomplete drainage is not permission to uninstall.
 
-This removes application/controller resources, not the operator-owned PVC, repository data or Secrets, including any secondary credentials. Keep those inputs for recovery or reinstallation.
+The operator-owned PVC, repository data, Secrets and shared CRD survive uninstall. In 0.2.1, deletion confirms drainage again and conditionally releases only this application's claim binding; ordinary stop retains ownership and the finalizer. Unavailable observations or conflicting writes leave removal incomplete. Failed/interrupted work keeps the claim fenced; uninstall clears neither failure markers nor native locks.
 
-Release 0.2.1 supports same-PVC reuse after successful supported uninstall. Ordinary stop retains ownership and the drain finalizer. During application deletion, the controller confirms drainage again and conditionally releases only that application's claim binding before completing finalization. Unavailable observations or conflicting writes leave removal incomplete. Failed or interrupted lifecycle operations keep the claim fenced; removal does not clear failure markers or native locks.
-
-After finalization and Helm uninstall complete, retain `application.replicas: 1` in the installation values and reinstall 0.2.1 with the same PVC, configuration and Secrets:
+After successful finalization and Helm uninstall, retain `application.replicas: 1` in the values and reinstall 0.2.1 with the same PVC, configuration and Secrets:
 
 ```sh
 helm upgrade --install backup "$CHART" -n backup -f endpoint-values.yaml \
@@ -283,7 +273,7 @@ kubectl -n backup get resticapplication backup-restic -o json
 
 The new application acquires ownership and performs fresh native admission of the existing repositories. Require current-generation Ready, verify repository identity and retained history, restore an old point and verify a new backup.
 
-The shared CRD also remains installed. Namespace deletion is a separate destructive action: it deletes the retained PVC and Secrets and may destroy the storage contents according to the StorageClass reclaim policy. It is not part of this uninstall procedure.
+Namespace deletion is separate and destructive: it deletes retained PVCs and Secrets and may destroy storage contents according to the StorageClass reclaim policy.
 
 ### Scheduled replication
 
@@ -358,14 +348,14 @@ The example host must be covered by the certificate and reachable from the Job. 
 
 ## Qualification and test output
 
-Historical qualification records:
+Exact historical evidence remains in:
 
 - [Scheduled replication and direct secondary restore](evidence/2026-11-02-replication.json).
 - [Kubernetes endpoint authorization, maintenance and replacement](evidence/2026-11-02-kubernetes.json).
 - [Native-process endpoint authorization](evidence/2026-11-02-endpoint.json).
 - [Native copy, interruption and independent retention](evidence/2026-11-02-restic-copy.json).
 
-The scheduled qualification uses separate repository PVCs in one cluster, not an actual cross-provider outage. Native copy retry preserves selectable recovery points and avoids duplicate snapshots; it does not bound retransmitted data. Application compatibility remains the consumer's responsibility. The [Keycloak recovery qualification](../bartl-keycloak/evidence/2026-11-02-secondary-recovery.json) covers the compatible native worker, not a published image or its complete controller lifecycle.
+These scenarios used separate PVCs in one cluster, not a cross-provider outage. Native copy retry preserves selectable points without duplicate snapshots; retransmitted data is not bounded. Consumers own application compatibility. The [Keycloak recovery qualification](../bartl-keycloak/evidence/2026-11-02-secondary-recovery.json) covers the compatible native worker, not a published image or complete controller lifecycle.
 
 Run the executable scenarios only against an explicitly authorized disposable Hetzner cluster with a default StorageClass and registry access:
 
@@ -378,15 +368,13 @@ node tests/replication.mjs
 node tests/observation.mjs
 ```
 
-Each runner creates its own namespace. Successful teardown finalizes each stopped application before uninstalling Helm, then separately destroys the disposable fixture namespace and its data. Failures retain diagnostics and direct the operator to the supported uninstall procedure. The runners do not provision infrastructure or establish provider cleanup or cost; the operator must delete the lab, verify removal and record the budget outcome. Use Hetzner for these tests; Colima or local Docker requires explicit permission. The controller/worker image must already be accessible to the cluster; a lab may build it on its Hetzner host and import it into containerd instead of publishing it.
+Each runner creates a namespace and, on success, finalizes stopped applications before Helm uninstall and separate destruction of the disposable namespace/data. Failures retain diagnostics and refer to supported uninstall. Runners do not provision infrastructure or establish provider cleanup/cost; the operator deletes the lab, verifies removal and records the budget outcome. Use Hetzner; Colima/local Docker needs explicit permission. The image must be cluster-accessible; a lab may build on its Hetzner host and import into containerd instead of publishing.
 
-The observation runner verifies API isolation from the endpoint's own network namespace while authenticated client traffic remains available. Its disposable IPv4 fixture requires enforced egress NetworkPolicy, read access to the API Service/EndpointSlices and node addresses, and permission to attach a temporary root API probe with `NET_ADMIN`. The probe installs namespace-local API rejection rules because CNI policy can preserve established connections; the policy also covers replacement Pods. It requires actual API request failure and the running guard's observation-failure log before accepting the outage. The same runner checks real ServiceAccount permissions, fresh-process admission and direct-to-Pod nginx connection drainage using a native Restic pack. It writes only raw diagnostics outside Git.
+The observation runner isolates the endpoint's API traffic while authenticated clients remain available. Its IPv4 fixture needs enforced egress NetworkPolicy, API Service/EndpointSlice and node-address reads, and a temporary root probe with `NET_ADMIN`. Namespace-local rejection rules also cover replacement Pods and defeat CNI-preserved connections. Acceptance requires failed API requests and the guard's observation-failure log. It also checks ServiceAccount permissions, fresh-process admission and direct-to-Pod nginx drainage with a native Restic pack.
 
-Run output stays outside the checkout in a private temporary directory by default. Set `BARTL_RESTIC_EVIDENCE_DIR` to an external artifact directory to select another location; paths inside the checkout, including symlink aliases, are rejected. `raw.json` holds redacted command output and diagnostic details; `qualification.json` contains the selected run summary and source provenance. Values and rendered manifests are also run artifacts, not product documentation.
+Output defaults to a private external temporary directory. `BARTL_RESTIC_EVIDENCE_DIR` selects another external path; checkout paths and symlink aliases are rejected. `raw.json` holds redacted diagnostics; `qualification.json` holds the selected summary and source provenance. Values and manifests are run artifacts. Provenance records run-start HEAD, dirty state and SHA-256 of chart, controller/worker, dependencies, image-build and test files; dirty runs qualify those bytes, not HEAD alone.
 
-Source provenance captures run-start Git HEAD, dirty state and SHA-256 of the chart, controller/worker, dependency, image-build and test files. A run with uncommitted changes qualifies those recorded bytes, not HEAD alone. Run focused native boundary regressions with `go test ./...`; check output isolation, compact-record selection and provenance with `node --test tests/artifacts.test.mjs`. The cluster scenarios, not those unit tests, establish service behavior.
-
-Keep run artifacts outside Git. Put the concise verification result, tested version, material limits and provider cleanup/budget outcome in the integration description. Do not add per-session evidence files, raw transcripts, Kubernetes object dumps or nested regression records to Git. Existing historical records remain available without rewriting history.
+Use `go test ./...` for native boundary regressions and `node --test tests/artifacts.test.mjs` for output isolation, compact-record selection and provenance. Cluster scenarios establish service behavior. Keep artifacts outside Git; put tested versions, concise results, material limits and cleanup/budget outcome in the integration description. Do not add session reports, transcripts, object dumps or nested regression records. Existing historical evidence stays available.
 
 To exercise supported uninstall against the published artifacts, use the `CHART` and `IMAGE` references from the installation section on an authorized disposable Hetzner cluster:
 
