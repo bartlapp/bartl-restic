@@ -1,12 +1,20 @@
 # Bartlized Restic backend
 
-This package exposes authenticated Restic HTTPS endpoints on existing Kubernetes storage under the [Bartl application contract](https://codeberg.org/bartlapp/bartl-app/src/branch/main/docs/application-contract.md#portable-recovery-artifact-and-storage-boundary). [ADR-11](../../floriankesslergmbh/floriankesslergmbh/adr/ADR-11-Uebergebbare-Backup-Architektur/README.md) selects Restic and defines the reference installation's backup and handover requirements.
+This package exposes authenticated Restic HTTPS endpoints on existing Kubernetes storage under the [Bartl application contract](https://codeberg.org/bartlapp/bartl-app/src/branch/main/docs/application-contract.md#portable-recovery-artifact-and-storage-boundary). [Kubernetes operating packages](https://codeberg.org/bartlapp/bartl-app/src/branch/main/docs/how-to-bartlize.md#kubernetes-operating-packages) explains the controller model; [operating and handing over an installation](https://codeberg.org/bartlapp/bartl-app/src/branch/main/docs/how-to-bartlize.md#operate-and-hand-over-an-installation) covers the human-executed cross-application sequence. This README defines the Restic-specific storage, replication, recovery and maintenance procedures.
 
 ## Service and state boundary
 
 The service owns repository storage, access protection, replication and its own recovery; retention is administered through native maintenance. Each application writes to one endpoint with separate repository, encryption key and credentials. The service does not capture or reconstruct consumers. Repository-operation exclusion belongs at the repository-access boundary, not in application-specific integrations.
 
-Mutable state consists of the encrypted Restic repository directories, including their identities and retained snapshot history. The per-customer Git repository holds deployment configuration, pinned software references, repository declarations, access and retention policies, and references to protected credentials. Configuration in Git does not replace repository data. Keys, credentials and configuration must remain available independently of the provider whose loss they cover.
+Mutable state consists of the encrypted Restic repository directories, including their identities and retained snapshot history. The [customer installation repository](https://codeberg.org/bartlapp/bartl-app/src/branch/main/docs/how-to-bartlize.md#customer-installation-repository) holds deployment configuration, pinned software references, repository declarations, access and retention policies, and references to protected credentials. Configuration in Git does not replace repository data. Keys, credentials and configuration must remain available independently of the provider whose loss they cover.
+
+### Required installation decisions
+
+Before relying on the service, record the covered failures and independently usable primary/secondary endpoints, exact artifacts and effective Helm values, storage/TLS/network prerequisites and protected recovery-input locations in the customer installation repository. Assign operating responsibility for publication/replication monitoring, native integrity checks, restore qualification, retention maintenance and replacement authorization.
+
+Specify accepted data loss and interruption, replication-outage allowance, recovery-point selection and source-retirement/activation controls. Select replication schedules, deadlines and capacity for that installation; the examples below do not establish a recovery objective. Preserve operation results and the latest verified usable points so that another operator can distinguish application publication from secondary protection.
+
+Define primary and independent secondary retention, required holds, deletion approval and capacity monitoring. Retention must preserve the consumers' required complete recovery points and enough primary history to cover the accepted replication outage. The package neither selects points for deletion nor schedules retention; an operator executes the native maintenance procedure under those recorded rules. Keep destructive admin credentials separate from consumer and replication credentials.
 
 ## Disaster recovery
 
@@ -355,7 +363,7 @@ Exact historical evidence remains in:
 - [Native-process endpoint authorization](evidence/2026-11-02-endpoint.json).
 - [Native copy, interruption and independent retention](evidence/2026-11-02-restic-copy.json).
 
-These scenarios used separate PVCs in one cluster, not a cross-provider outage. Native copy retry preserves selectable points without duplicate snapshots; retransmitted data is not bounded. Consumers own application compatibility. The [Keycloak recovery qualification](../bartl-keycloak/evidence/2026-11-02-secondary-recovery.json) covers the compatible native worker, not a published image or complete controller lifecycle.
+These scenarios used separate PVCs in one cluster, not a cross-provider outage. Native copy retry preserves selectable points without duplicate snapshots; retransmitted data is not bounded. Consumers own application compatibility. The [Keycloak recovery qualification](https://codeberg.org/bartlapp/bartl-keycloak/src/branch/main/evidence/2026-11-02-secondary-recovery.json) covers the compatible native worker, not a published image or complete controller lifecycle.
 
 Run the executable scenarios only against an explicitly authorized disposable Hetzner cluster with a default StorageClass and registry access:
 
