@@ -1,8 +1,8 @@
 package main
 
 import (
-	api "codeberg.org/bartlapp/bartl-restic/api/v1alpha1"
-	"codeberg.org/bartlapp/bartl-restic/internal/controller"
+	api "github.com/bartlapp/bartl-restic/api/v1alpha1"
+	"github.com/bartlapp/bartl-restic/internal/controller"
 	"fmt"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"

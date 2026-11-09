@@ -1,12 +1,12 @@
 # Bartlized Restic backend
 
-This package exposes authenticated Restic HTTPS endpoints on existing Kubernetes storage under the [Bartl application contract](https://codeberg.org/bartlapp/bartl-app/src/branch/main/docs/application-contract.md#portable-recovery-artifact-and-storage-boundary). [Kubernetes operating packages](https://codeberg.org/bartlapp/bartl-app/src/branch/main/docs/how-to-bartlize.md#kubernetes-operating-packages) explains the controller model; [operating and handing over an installation](https://codeberg.org/bartlapp/bartl-app/src/branch/main/docs/how-to-bartlize.md#operate-and-hand-over-an-installation) covers the human-executed cross-application sequence. This README defines the Restic-specific storage, replication, recovery and maintenance procedures.
+This package exposes authenticated Restic HTTPS endpoints on existing Kubernetes storage under the [Bartl application contract](https://github.com/bartlapp/bartl-app/blob/main/docs/application-contract.md#portable-recovery-artifact-and-storage-boundary). [Kubernetes operating packages](https://github.com/bartlapp/bartl-app/blob/main/docs/how-to-bartlize.md#kubernetes-operating-packages) explains the controller model; [operating and handing over an installation](https://github.com/bartlapp/bartl-app/blob/main/docs/how-to-bartlize.md#operate-and-hand-over-an-installation) covers the human-executed cross-application sequence. This README defines the Restic-specific storage, replication, recovery and maintenance procedures.
 
 ## Service and state boundary
 
 The service owns repository storage, access protection, replication and its own recovery; retention is administered through native maintenance. Each application writes to one endpoint with separate repository, encryption key and credentials. The service does not capture or reconstruct consumers. Repository-operation exclusion belongs at the repository-access boundary, not in application-specific integrations.
 
-Mutable state consists of the encrypted Restic repository directories, including their identities and retained snapshot history. The [customer installation repository](https://codeberg.org/bartlapp/bartl-app/src/branch/main/docs/how-to-bartlize.md#customer-installation-repository) holds deployment configuration, pinned software references, repository declarations, access and retention policies, and references to protected credentials. Configuration in Git does not replace repository data. Keys, credentials and configuration must remain available independently of the provider whose loss they cover.
+Mutable state consists of the encrypted Restic repository directories, including their identities and retained snapshot history. The [customer installation repository](https://github.com/bartlapp/bartl-app/blob/main/docs/how-to-bartlize.md#customer-installation-repository) holds deployment configuration, pinned software references, repository declarations, access and retention policies, and references to protected credentials. Configuration in Git does not replace repository data. Keys, credentials and configuration must remain available independently of the provider whose loss they cover.
 
 ### Required installation decisions
 
@@ -363,7 +363,7 @@ Exact historical evidence remains in:
 - [Native-process endpoint authorization](evidence/2026-11-02-endpoint.json).
 - [Native copy, interruption and independent retention](evidence/2026-11-02-restic-copy.json).
 
-These scenarios used separate PVCs in one cluster, not a cross-provider outage. Native copy retry preserves selectable points without duplicate snapshots; retransmitted data is not bounded. Consumers own application compatibility. The [Keycloak recovery qualification](https://codeberg.org/bartlapp/bartl-keycloak/src/branch/main/evidence/2026-11-02-secondary-recovery.json) covers the compatible native worker, not a published image or complete controller lifecycle.
+These scenarios used separate PVCs in one cluster, not a cross-provider outage. Native copy retry preserves selectable points without duplicate snapshots; retransmitted data is not bounded. Consumers own application compatibility. The [Keycloak recovery qualification](https://github.com/bartlapp/bartl-keycloak/blob/main/evidence/2026-11-02-secondary-recovery.json) covers the compatible native worker, not a published image or complete controller lifecycle.
 
 Run the executable scenarios only against an explicitly authorized disposable Hetzner cluster with a default StorageClass and registry access:
 
@@ -410,12 +410,12 @@ It first installs and backs up through 0.2.0, upgrades the existing application 
 
 Follow the Bartl publication convention: public OCI packages under `ghcr.io/bartlapp`, independent of private source-repository access. Never overwrite a released image or chart version, change existing visibility or alter team access as part of a release.
 
-1. Inspect live Codeberg repository policy/access and GitHub organization/package authority before remote writes. Registry publication requires `write:packages`; new GHCR packages need explicit public-visibility approval and an administrator to complete that setting.
+1. Inspect live GitHub repository policy/access and organization/package authority before remote writes. Registry publication requires `write:packages`; new GHCR packages need explicit public-visibility approval and an administrator to complete that setting.
 2. Commit release changes separately. Build the combined image from the committed source on an authorized Hetzner host using `Dockerfile`, `--platform linux/amd64`, `--provenance=false`, `--build-arg VERSION=VERSION` and `--build-arg REVISION=FULL_SOURCE_SHA`. Retain the source archive and OCI image archive outside Git.
 3. Set the chart version and pin its default image to the retained manifest digest. Stage a copy of `chart/` with root `LICENSE` and `NOTICE` included, then `helm package` that directory. Retain the chart archive and SHA-256. The published 0.2.1 archive includes those notices and `crds/resticapplications.yaml`.
 4. Publish the retained image with digest preservation and the retained chart to `oci://ghcr.io/bartlapp`. Use isolated temporary registry credentials and remove them afterward. Do not rebuild or repackage between verification and publication.
 5. With empty registry credentials, acquire the complete chart and image, verify archive/manifest identities, then smoke-install the published chart on a disposable Hetzner cluster. Verify current-generation startup, authenticated backup/restore, stop/start and actual runtime image IDs against the published digest.
-6. Put artifact identities, concise verification, material limits and provider cleanup/budget outcome in the release/integration description. Integrate through the permitted Codeberg workflow without squashing; keep raw logs outside Git and delete disposable infrastructure.
+6. Put artifact identities, concise verification, material limits and provider cleanup/budget outcome in the release/integration description. Integrate through the permitted GitHub workflow without squashing; keep raw logs outside Git and delete disposable infrastructure.
 
 Original code and configuration use [Apache-2.0](LICENSE); documentation and methodology use CC-BY-4.0 as stated in [NOTICE](NOTICE). The image contains project and linked dependency notices under `/usr/share/licenses/bartl-restic/`; upstream components retain their own terms.
 

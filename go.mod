@@ -1,4 +1,4 @@
-module codeberg.org/bartlapp/bartl-restic
+module github.com/bartlapp/bartl-restic
 
 go 1.25.0
 

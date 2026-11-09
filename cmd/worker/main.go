@@ -11,7 +11,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"codeberg.org/bartlapp/bartl-restic/internal/native"
+	"github.com/bartlapp/bartl-restic/internal/native"
 )
 
 func main() {

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	api "codeberg.org/bartlapp/bartl-restic/api/v1alpha1"
+	api "github.com/bartlapp/bartl-restic/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 

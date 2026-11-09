@@ -1,7 +1,7 @@
 package controller
 
 import (
-	api "codeberg.org/bartlapp/bartl-restic/api/v1alpha1"
+	api "github.com/bartlapp/bartl-restic/api/v1alpha1"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
