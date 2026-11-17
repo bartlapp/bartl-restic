@@ -1,0 +1,217 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": "string",
+          "pattern": "^.+@sha256:[a-f0-9]{64}$"
+        },
+        "existingClaim": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tlsSecret": {
+          "type": "string",
+          "minLength": 1
+        },
+        "repositories": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z0-9]([a-z0-9-]{0,56}[a-z0-9])?$"
+              },
+              "authSecret": {
+                "type": "string",
+                "minLength": 1
+              },
+              "passwordSecret": {
+                "type": "string",
+                "minLength": 1
+              },
+              "recovery": {
+                "$ref": "#/definitions/destination"
+              }
+            }
+          }
+        },
+        "replication": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "repository",
+              "sourceCredentialsSecret",
+              "destination",
+              "schedule"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "maxLength": 20,
+                "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
+              },
+              "repository": {
+                "type": "string",
+                "pattern": "^[a-z0-9]([a-z0-9-]{0,56}[a-z0-9])?$"
+              },
+              "sourceCredentialsSecret": {
+                "type": "string",
+                "maxLength": 253,
+                "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$"
+              },
+              "destination": {
+                "$ref": "#/definitions/destination"
+              },
+              "schedule": {
+                "type": "string",
+                "minLength": 1
+              },
+              "timeZone": {
+                "type": "string",
+                "minLength": 1
+              },
+              "suspend": {
+                "type": "boolean"
+              },
+              "activeDeadlineSeconds": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647
+              }
+            }
+          }
+        },
+        "maintenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "name": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
+            },
+            "repository": {
+              "type": "string"
+            },
+            "action": {
+              "type": "string",
+              "enum": [
+                "check",
+                "forget-prune"
+              ]
+            },
+            "snapshot": {
+              "type": "string"
+            },
+            "host": {
+              "type": "string",
+              "pattern": "^([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]|[a-zA-Z0-9])?$"
+            },
+            "credentialsSecret": {
+              "type": "string"
+            }
+          },
+          "allOf": [
+            {
+              "if": {"required": ["enabled"], "properties": {"enabled": {"const": true}}},
+              "then": {
+                "required": ["repository", "host", "credentialsSecret"],
+                "properties": {
+                  "repository": {"minLength": 1},
+                  "host": {"minLength": 1},
+                  "credentialsSecret": {"minLength": 1}
+                }
+              }
+            },
+            {
+              "if": {"required": ["action"], "properties": {"action": {"const": "forget-prune"}}},
+              "then": {
+                "required": ["snapshot"],
+                "properties": {"snapshot": {"pattern": "^[a-f0-9]{64}$"}}
+              }
+            }
+          ]
+        },
+        "replicas": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "release": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hostname": {
+          "type": "string",
+          "maxLength": 253,
+          "pattern": "^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"
+        },
+        "tls": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "managed": {
+              "type": "boolean"
+            },
+            "acmeServer": {
+              "type": "string",
+              "pattern": "^https://[^ ]+$"
+            }
+          }
+        },
+        "ingress": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "entryPoint": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "destination": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "host",
+        "repository",
+        "credentialsSecret"
+      ],
+      "properties": {
+        "host": {
+          "type": "string",
+          "maxLength": 253,
+          "pattern": "^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"
+        },
+        "repository": {
+          "type": "string",
+          "pattern": "^[a-z0-9]([a-z0-9-]{0,56}[a-z0-9])?$"
+        },
+        "credentialsSecret": {
+          "type": "string",
+          "maxLength": 253,
+          "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$"
+        }
+      }
+    }
+  }
+}

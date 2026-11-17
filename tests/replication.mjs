@@ -20,7 +20,7 @@ const source = snapshotSource(root);
 if (!process.env.BARTL_RESTIC_IMAGE) throw new Error('Require BARTL_RESTIC_IMAGE imported into the lab cluster.');
 const privateDir = join(directory, 'private');
 mkdirSync(privateDir, { mode: 0o700 });
-const chart = join(root, 'chart');
+const chart = process.env.BARTL_RESTIC_CHART || join(root, 'chart');
 const image = 'docker.io/restic/restic:0.19.1';
 const endpoints = Object.fromEntries(['primary', 'secondary'].map(name => [name, {
   name, deployment: `${name}-restic`, host: `${name}-restic.${namespace}.svc`,
@@ -172,12 +172,13 @@ try {
   secret('source-key', { password: endpoints.primary.password });
   const installationValues = {};
   for (const name of ['primary', 'secondary']) {
-    const values = { image: process.env.BARTL_RESTIC_IMAGE, existingClaim: `${name}-data`, tlsSecret: `${name}-tls`,
+    const values = { image: process.env.BARTL_RESTIC_IMAGE, hostname: endpoints[name].host,
+      ingress: { enabled: false }, tls: { managed: false }, existingClaim: `${name}-data`, tlsSecret: `${name}-tls`,
       repositories: [{ name: 'alpha', authSecret: `${name}-auth`, passwordSecret: `${name}-key` }] };
     if (name === 'secondary') values.repositories[0].recovery = { host: endpoints.primary.host, repository: 'alpha', credentialsSecret: 'primary-reader' };
     installationValues[name] = values;
     const valuesFile = join(directory, `${name}-values.json`);
-    writeFileSync(valuesFile, JSON.stringify(values, null, 2) + '\n');
+    writeFileSync(valuesFile, JSON.stringify({ installation: namespace, services: { restic: values } }, null, 2) + '\n');
     const args = [name, chart, '--namespace', namespace, '-f', valuesFile];
     writeFileSync(join(directory, `${name}-rendered.yaml`), command('helm', ['template', ...args]).stdout);
     command('helm', ['upgrade', '--install', ...args, '--wait=legacy', '--timeout', '5m'], { timeout: 330000 });
@@ -193,7 +194,7 @@ try {
   const configs = Object.fromEntries(['primary', 'secondary'].map(name => [name, JSON.parse(restic(name, 'reader', 'cat config').stdout)]));
   assert('separate repository identities and shared chunker parameters', configs.primary.id !== configs.secondary.id && configs.primary.chunker_polynomial === configs.secondary.chunker_polynomial, { configs });
   installationValues.primary.replication = [{ name: 'alpha', repository: 'alpha', sourceCredentialsSecret: 'source-key', destination: { host: endpoints.secondary.host, repository: 'alpha', credentialsSecret: 'secondary-writer' }, schedule: '* * * * *' }];
-  writeFileSync(join(directory, 'primary-values.json'), JSON.stringify(installationValues.primary, null, 2) + '\n');
+  writeFileSync(join(directory, 'primary-values.json'), JSON.stringify({ installation: namespace, services: { restic: installationValues.primary } }, null, 2) + '\n');
   command('helm', ['upgrade', 'primary', chart, '--namespace', namespace, '-f', join(directory, 'primary-values.json')]);
   await applicationState('primary', 'Ready');
   cronUID = JSON.parse(kubectl(['get', 'cronjob', cronName, '-o', 'json']).stdout).metadata.uid;

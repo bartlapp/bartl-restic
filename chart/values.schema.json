@@ -1,75 +1,55 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
   "type": "object",
-  "additionalProperties": false,
-  "required": ["image", "application", "existingClaim", "tlsSecret", "repositories", "maintenance"],
+  "additionalProperties": true,
+  "required": [
+    "installation",
+    "instance",
+    "renderMode",
+    "services"
+  ],
+  "$comment": "The selected services.<instance> is validated against interface.schema.json; unrelated service, resolved and infrastructure inputs are ignored.",
   "properties": {
-    "image": {"type": "string", "minLength": 1},
-    "application": {"type": "object", "additionalProperties": false, "required": ["replicas"], "properties": {"replicas": {"type": "integer", "minimum": 0, "maximum": 1}}},
-    "existingClaim": {"type": "string", "minLength": 1},
-    "tlsSecret": {"type": "string", "minLength": 1},
-    "repositories": {
-      "type": "array",
-      "items": {
-        "type": "object", "additionalProperties": false,
-        "required": ["name", "authSecret", "passwordSecret"],
-        "properties": {
-          "name": {"type": "string", "pattern": "^[a-z0-9]([a-z0-9-]{0,56}[a-z0-9])?$"},
-          "authSecret": {"type": "string", "minLength": 1},
-          "passwordSecret": {"type": "string", "minLength": 1},
-          "recovery": {"$ref": "#/properties/replication/items/properties/destination"}
-        }
-      }
+    "installation": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*$"
     },
-    "replication": {
-      "type": "array",
-      "items": {
-        "type": "object", "additionalProperties": false,
-        "required": ["name", "repository", "sourceCredentialsSecret", "destination", "schedule"],
-        "properties": {
-          "name": {"type": "string", "maxLength": 20, "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"},
-          "repository": {"type": "string", "pattern": "^[a-z0-9]([a-z0-9-]{0,56}[a-z0-9])?$"},
-          "sourceCredentialsSecret": {"type": "string", "maxLength": 253, "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$"},
-          "destination": {
-            "type": "object", "additionalProperties": false,
-            "required": ["host", "repository", "credentialsSecret"],
-            "properties": {
-              "host": {"type": "string", "maxLength": 253, "pattern": "^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"},
-              "repository": {"type": "string", "pattern": "^[a-z0-9]([a-z0-9-]{0,56}[a-z0-9])?$"},
-              "credentialsSecret": {"type": "string", "maxLength": 253, "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$"}
-            }
-          },
-          "schedule": {"type": "string", "minLength": 1},
-          "timeZone": {"type": "string", "minLength": 1},
-          "suspend": {"type": "boolean"},
-          "activeDeadlineSeconds": {"type": "integer", "minimum": 1, "maximum": 2147483647}
-        }
-      }
+    "instance": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*$"
     },
-    "maintenance": {
-      "type": "object", "additionalProperties": false,
-      "required": ["enabled", "name", "repository", "action", "snapshot", "host", "credentialsSecret"],
-      "properties": {
-        "enabled": {"type": "boolean"},
-        "name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"},
-        "repository": {"type": "string"},
-        "action": {"enum": ["check", "forget-prune"]},
-        "snapshot": {"type": "string"},
-        "host": {"type": "string", "pattern": "^([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]|[a-zA-Z0-9])?$"},
-        "credentialsSecret": {"type": "string"}
-      },
-      "allOf": [
-        {"if": {"properties": {"enabled": {"const": true}}}, "then": {
-          "properties": {
-            "repository": {"minLength": 1},
-            "host": {"minLength": 1},
-            "credentialsSecret": {"minLength": 1}
-          }
-        }},
-        {"if": {"properties": {"action": {"const": "forget-prune"}}}, "then": {
-          "properties": {"snapshot": {"pattern": "^[a-f0-9]{64}$"}}
-        }}
+    "renderMode": {
+      "type": "string",
+      "enum": [
+        "deployment",
+        "connections"
       ]
-    }
+    },
+    "dns": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "root": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 239,
+          "pattern": "^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"
+        }
+      }
+    },
+    "services": {
+      "type": "object"
+    },
+    "image": false,
+    "application": false,
+    "existingClaim": false,
+    "tlsSecret": false,
+    "repositories": false,
+    "replication": false,
+    "maintenance": false
   }
 }

@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bartl-restic
 description: Native Restic repository lifecycle, authenticated HTTPS and scheduled replication
-version: 0.2.1
+version: 0.3.0
 appVersion: "0.19.1"
 type: application

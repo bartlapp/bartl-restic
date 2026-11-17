@@ -1,3 +1,5 @@
+{{- if eq .Values.renderMode "deployment" -}}
+{{- $service := include "restic.service" . | fromYaml -}}
 {{- $name := include "bartl-restic.name" . -}}
 apiVersion: v1
 kind: ServiceAccount
@@ -25,18 +27,18 @@ rules:
   - apiGroups: ['']
     resources: [secrets]
     resourceNames:
-      - {{ .Values.tlsSecret | quote }}
-      {{- range .Values.repositories }}
+      - {{ $service.tlsSecret | quote }}
+      {{- range $service.repositories }}
       - {{ .authSecret | quote }}
       - {{ .passwordSecret | quote }}
       {{- end }}
-      {{- range .Values.replication }}
+      {{- range $service.replication }}
       - {{ .sourceCredentialsSecret | quote }}
       {{- end }}
     verbs: [get]
   - apiGroups: ['']
     resources: [persistentvolumeclaims]
-    resourceNames: [{{ .Values.existingClaim | quote }}]
+    resourceNames: [{{ $service.existingClaim | quote }}]
     verbs: [get, update, patch]
   - apiGroups: ['']
     resources: [pods]
@@ -86,7 +88,7 @@ rules:
     verbs: [get]
   - apiGroups: ['']
     resources: [persistentvolumeclaims]
-    resourceNames: [{{ .Values.existingClaim | quote }}]
+    resourceNames: [{{ $service.existingClaim | quote }}]
     verbs: [get]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -120,7 +122,7 @@ spec:
       serviceAccountName: {{ $name }}-controller
       containers:
         - name: controller
-          image: {{ required "image is required" .Values.image | quote }}
+          image: {{ $service.image | quote }}
           command: [/bartl-restic-controller]
           env:
             - name: WATCH_NAMESPACE
@@ -139,3 +141,4 @@ spec:
             httpGet:
               path: /healthz
               port: 8081
+{{- end }}

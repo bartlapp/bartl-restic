@@ -96,7 +96,8 @@ function restic(operation, options) {
   return exec(`export RESTIC_REPOSITORY='rest:https://${hostname}/alpha/' RESTIC_PASSWORD_FILE=/credentials/password; export RESTIC_REST_USERNAME="$(cat /credentials/username)" RESTIC_REST_PASSWORD="$(cat /credentials/restPassword)"; restic --cacert /credentials/ca.crt ${operation}`, options);
 }
 function install(selectedChart = chart) {
-  command('helm', ['upgrade', '--install', release, selectedChart, '--namespace', namespace, '-f', join(privateDir, 'values.json'), '--wait=legacy', '--timeout', '5m'], { timeout: 330000 });
+  command('helm', ['upgrade', '--install', release, selectedChart, '--namespace', namespace, '--reset-values',
+    '-f', join(privateDir, selectedChart === sourceChart ? 'source-values.json' : 'values.json'), '--wait=legacy', '--timeout', '5m'], { timeout: 330000 });
 }
 const ready = pod => pod.status.phase === 'Running' && !pod.metadata.deletionTimestamp &&
   pod.status.conditions?.some(condition => condition.type === 'Ready' && condition.status === 'True');
@@ -147,7 +148,7 @@ async function contender(round, originalUID) {
     rejected.metadata.uid !== originalUID && /another application UID/.test(rejected.status.reason) && owner() === originalUID &&
     !get('jobs').items.some(job => job.metadata.ownerReferences?.some(reference => reference.uid === rejected.metadata.uid)));
   command('helm', ['upgrade', competingRelease, chart, '--namespace', namespace, '--reuse-values',
-    '--set', 'application.replicas=0', '--wait=legacy', '--timeout', '5m'], { timeout: 330000 });
+    '--set', 'services.restic.replicas=0', '--wait=legacy', '--timeout', '5m'], { timeout: 330000 });
   await until(`${round}: contender stopped`, () => {
     const object = get('resticapplication', name);
     return object.spec.replicas === 0 && object.status?.state === 'Stopped' &&
@@ -219,7 +220,7 @@ async function replayStaleLifecycle(captured, oldUID, history) {
 async function stopAndUninstall(round, pvcUID, secrets) {
   const initialController = controller();
   const initialStatus = initialController.status.containerStatuses.find(container => container.name === 'controller');
-  command('helm', ['upgrade', release, chart, '--namespace', namespace, '--reuse-values', '--set', 'application.replicas=0', '--wait=legacy', '--timeout', '5m'], { timeout: 330000 });
+  command('helm', ['upgrade', release, chart, '--namespace', namespace, '--reuse-values', '--set', 'services.restic.replicas=0', '--wait=legacy', '--timeout', '5m'], { timeout: 330000 });
   const stopped = await state('Stopped');
   await until('actual endpoint and lifecycle drainage', () => {
     const deployment = get('deployment', application);
@@ -266,14 +267,6 @@ async function restore(snapshot, expectedHash, target, round) {
 }
 let owned = false;
 try {
-  const defaults = command('helm', ['show', 'values', chart], { timeout: 120000 }).stdout;
-  const defaultImage = defaults.match(/^image:\s*["']?([^\s"']+)["']?\s*$/m)?.[1];
-  assert('immutable chart default image equals the supplied image', defaultImage === image);
-  if (sourceChart) {
-    const sourceDefaults = command('helm', ['show', 'values', sourceChart], { timeout: 120000 }).stdout;
-    assert('upgrade source chart pins the supplied source image',
-      sourceDefaults.match(/^image:\s*["']?([^\s"']+)["']?\s*$/m)?.[1] === sourceImage);
-  }
   k(['create', 'namespace', namespace]);
   owned = true;
   command('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '2', '-subj', '/CN=Disposable Uninstall CA', '-keyout', join(privateDir, 'ca.key'), '-out', join(privateDir, 'ca.crt')]);
@@ -289,7 +282,12 @@ try {
   secret('fixture-tls', { 'tls.crt': readFileSync(join(privateDir, 'tls.crt'), 'utf8'), 'tls.key': readFileSync(join(privateDir, 'tls.key'), 'utf8') }, 'kubernetes.io/tls');
   secret('fixture-client', { username: 'admin', restPassword: roles.admin, password, 'ca.crt': readFileSync(join(privateDir, 'ca.crt'), 'utf8') });
   apply({ apiVersion: 'v1', kind: 'PersistentVolumeClaim', metadata: { name: 'fixture-data' }, spec: { accessModes: ['ReadWriteOnce'], resources: { requests: { storage: '3Gi' } } } });
-  writeFileSync(join(privateDir, 'values.json'), JSON.stringify({ existingClaim: 'fixture-data', tlsSecret: 'fixture-tls', repositories: [{ name: 'alpha', authSecret: 'fixture-auth', passwordSecret: 'fixture-key' }] }), { mode: 0o600 });
+  const service = { existingClaim: 'fixture-data', tlsSecret: 'fixture-tls',
+    repositories: [{ name: 'alpha', authSecret: 'fixture-auth', passwordSecret: 'fixture-key' }] };
+  if (sourceChart) writeFileSync(join(privateDir, 'source-values.json'), JSON.stringify(service), { mode: 0o600 });
+  writeFileSync(join(privateDir, 'values.json'), JSON.stringify({ installation: namespace, services: { restic: {
+    ...service, hostname, ingress: { enabled: false }, tls: { managed: false },
+  } } }), { mode: 0o600 });
   install(sourceChart || chart);
   await state('Ready');
   assertPublishedImages('initial install', sourceImage || image);

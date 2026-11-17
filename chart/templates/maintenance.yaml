@@ -1,10 +1,7 @@
-{{- if .Values.maintenance.enabled -}}
-{{- $maintenance := .Values.maintenance -}}
-{{- $found := false -}}
-{{- range .Values.repositories -}}
-{{- if eq .name $maintenance.repository -}}{{- $found = true -}}{{- end -}}
-{{- end -}}
-{{- if not $found -}}{{- fail "maintenance.repository must name a declared repository" -}}{{- end -}}
+{{- if eq .Values.renderMode "deployment" -}}
+{{- $service := include "restic.service" . | fromYaml -}}
+{{- if $service.maintenance.enabled -}}
+{{- $maintenance := $service.maintenance -}}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -55,4 +52,5 @@ spec:
                 path: password
               - key: ca.crt
                 path: ca.crt
+{{- end }}
 {{- end }}

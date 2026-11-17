@@ -1,0 +1,57 @@
+{{- if eq .Values.renderMode "connections" }}
+{{- $service := include "restic.service" . | fromYaml }}
+{{- $repositories := dict }}
+{{- $bindings := dict "tls" (dict "secretName" $service.tlsSecret) "repositories" dict }}
+{{- $tlsSources := list "external" "recovered" }}
+{{- if $service.tls.managed }}{{- $tlsSources = list "cert-manager" }}{{- end }}
+{{- $requirements := dict "tls" (dict "sources" $tlsSources "keys" (list "tls.crt" "tls.key") "requiredFor" (list "httpsEndpoint")) "repositories" dict }}
+{{- range $service.repositories }}
+  {{- $adminSecret := printf "%s-repository-admin" .name }}
+  {{- $_ := set $repositories .name (dict "repository" (printf "rest:https://%s/%s/" $service.hostname .name) "authSecret" .authSecret "passwordSecret" .passwordSecret "adminSecret" $adminSecret) }}
+  {{- $_ := set $bindings.repositories .name (dict "authentication" (dict "secretName" .authSecret) "encryption" (dict "secretName" .passwordSecret) "maintenance" (dict "secretName" $adminSecret)) }}
+  {{- $_ := set $requirements.repositories .name (dict
+    "authentication" (dict "sources" (list "generated" "external" "recovered") "keys" (list "htpasswd") "requiredFor" (list "repositoryAccess"))
+    "encryption" (dict "sources" (list "generated" "external" "recovered") "keys" (list "password") "requiredFor" (list "nativeAdmission" "recovery"))
+    "maintenance" (dict "sources" (list "generated" "external" "recovered") "keys" (list "username" "restPassword" "password" "ca.crt") "requiredFor" (list "operatorMaintenance"))) }}
+  {{- $repositoryName := .name }}
+  {{- with .recovery }}
+    {{- $_ := set (index $bindings.repositories $repositoryName) "recovery" (dict "secretName" .credentialsSecret) }}
+    {{- $_ := set (index $requirements.repositories $repositoryName) "recovery" (dict "sources" (list "external" "recovered") "keys" (list "username" "restPassword" "password" "ca.crt") "requiredFor" (list "absentLocalState")) }}
+  {{- end }}
+{{- end }}
+{{- if $service.replication }}
+  {{- $_ := set $bindings "replication" dict }}
+  {{- $_ := set $requirements "replication" dict }}
+  {{- range $service.replication }}
+    {{- $_ := set $bindings.replication .name (dict "source" (dict "secretName" .sourceCredentialsSecret) "destination" (dict "secretName" .destination.credentialsSecret)) }}
+    {{- $_ := set $requirements.replication .name (dict "source" (dict "sources" (list "generated" "external" "recovered") "keys" (list "password") "requiredFor" (list "replication")) "destination" (dict "sources" (list "external" "recovered") "keys" (list "username" "restPassword" "password" "ca.crt") "requiredFor" (list "replication"))) }}
+  {{- end }}
+{{- end }}
+services:
+  {{ .Values.instance | quote }}:
+    endpoints:
+      https:
+        url: {{ printf "https://%s" $service.hostname | quote }}
+        hostname: {{ $service.hostname | quote }}
+        tlsManaged: {{ $service.tls.managed }}
+        ingressEnabled: {{ $service.ingress.enabled }}
+backup:
+  providers:
+    {{ .Values.instance | quote }}:
+      repositories:
+        {{- toYaml $repositories | nindent 8 }}
+credentials:
+  requirements:
+    {{ .Values.instance | quote }}:
+      {{- toYaml $requirements | nindent 6 }}
+  bindings:
+    {{ .Values.instance | quote }}:
+      {{- toYaml $bindings | nindent 6 }}
+storage:
+  claims:
+    {{ .Values.instance | quote }}:
+      repository:
+        claimName: {{ $service.existingClaim | quote }}
+        accessModes: [ReadWriteOnce]
+        provisionedBy: operator
+{{- end }}

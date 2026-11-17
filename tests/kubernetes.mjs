@@ -69,7 +69,7 @@ async function applicationState(state) {
   }, 600000);
 }
 async function replicas(value) {
-  command('helm', ['upgrade', release, chart, '--namespace', namespace, '--reuse-values', '--set', `application.replicas=${value}`]);
+  command('helm', ['upgrade', release, chart, '--namespace', namespace, '--reuse-values', '--set', `services.restic.replicas=${value}`]);
   await applicationState(value ? 'Ready' : 'Stopped');
 }
 const exec = (container, script, options) => kubectl(['exec', 'client', '-c', container, '--', '/bin/sh', '-ec', script], options);
@@ -91,18 +91,20 @@ secrets.push(credentials.password);
 for (const repo of ['alpha', 'beta']) for (const role of roles) {
   credentials[`${repo}-${role}`] = randomBytes(24).toString('hex'); secrets.push(credentials[`${repo}-${role}`]);
 }
-const values = { image: process.env.BARTL_RESTIC_IMAGE, existingClaim: 'repositories', tlsSecret: 'repository-tls', repositories: [
+const service = { hostname: host, ingress: { enabled: false }, tls: { managed: false },
+  image: process.env.BARTL_RESTIC_IMAGE, existingClaim: 'repositories', tlsSecret: 'repository-tls', repositories: [
   { name: 'alpha', authSecret: 'alpha-auth', passwordSecret: 'repository-key' }, { name: 'beta', authSecret: 'beta-auth', passwordSecret: 'repository-key' },
 ] };
+const values = { installation: namespace, services: { restic: service } };
 const valuesFile = join(directory, 'values.json');
 writeFileSync(valuesFile, JSON.stringify(values, null, 2));
-const chart = join(root, 'chart');
+const chart = process.env.BARTL_RESTIC_CHART || join(root, 'chart');
 const render = (extra = []) => command('helm', ['template', release, chart, '--namespace', namespace, '-f', valuesFile, ...extra]).stdout;
 function maintenance(name, action = 'check', snapshot) {
-  const args = ['--show-only', 'templates/maintenance.yaml', '--set', 'maintenance.enabled=true', '--set', `maintenance.name=${name}`,
-    '--set', 'maintenance.repository=alpha', '--set', `maintenance.action=${action}`, '--set', `maintenance.host=${host}`,
-    '--set', 'maintenance.credentialsSecret=alpha-admin'];
-  if (snapshot) args.push('--set-string', `maintenance.snapshot=${snapshot}`);
+  const args = ['--show-only', 'templates/maintenance.yaml', '--set', 'services.restic.maintenance.enabled=true', '--set', `services.restic.maintenance.name=${name}`,
+    '--set', 'services.restic.maintenance.repository=alpha', '--set', `services.restic.maintenance.action=${action}`, '--set', `services.restic.maintenance.host=${host}`,
+    '--set', 'services.restic.maintenance.credentialsSecret=alpha-admin'];
+  if (snapshot) args.push('--set-string', `services.restic.maintenance.snapshot=${snapshot}`);
   kubectl(['apply', '-f', '-'], { input: render(args) });
   return `${endpoint}-${name}`;
 }
@@ -250,7 +252,8 @@ try {
       volumeMounts: [{ name: 'data', mountPath: '/data' }] }], volumes: [{ name: 'data', persistentVolumeClaim: { claimName: 'repositories' } }] } });
   await until('damaged state fixture created', () => JSON.parse(kubectl(['get', 'pod', 'damage', '-o', 'json'], { record: false }).stdout).status.phase === 'Succeeded');
   kubectl(['delete', 'pod', 'damage', '--wait=true']);
-  const damagedValues = { ...values, repositories: [...values.repositories, { name: 'damaged', authSecret: 'alpha-auth', passwordSecret: 'repository-key' }] };
+  const damagedValues = { ...values, services: { restic: { ...service,
+    repositories: [...service.repositories, { name: 'damaged', authSecret: 'alpha-auth', passwordSecret: 'repository-key' }] } } };
   const damagedFile = join(directory, 'damaged-values.json'); writeFileSync(damagedFile, JSON.stringify(damagedValues));
   command('helm', ['upgrade', release, chart, '--namespace', namespace, '-f', damagedFile]);
   const failed = await applicationState('Failed');

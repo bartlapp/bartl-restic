@@ -103,10 +103,12 @@ async function client(name, credentialOwner = name) {
 const configurations = {};
 function install(name, values) {
   configurations[name] = values;
-  const path = join(privateDir, `${name}-values.json`); writeFileSync(path, JSON.stringify(values), { mode: 0o600 });
-  command('helm', ['upgrade', '--install', name, join(root, 'chart'), '--namespace', namespace, '-f', path, '--wait=legacy', '--timeout', '5m'], { timeout: 330000 });
+  const path = join(privateDir, `${name}-values.json`);
+  writeFileSync(path, JSON.stringify({ installation: namespace, services: { restic: values } }), { mode: 0o600 });
+  command('helm', ['upgrade', '--install', name, process.env.BARTL_RESTIC_CHART || join(root, 'chart'), '--namespace', namespace, '-f', path, '--wait=legacy', '--timeout', '5m'], { timeout: 330000 });
 }
-const baseValues = (name, recovery) => ({ image, existingClaim: `${name}-data`, tlsSecret: `${name}-tls`, repositories: ['alpha', 'beta'].map(repository => ({
+const baseValues = (name, recovery) => ({ image, hostname: host(name), ingress: { enabled: false }, tls: { managed: false },
+  existingClaim: `${name}-data`, tlsSecret: `${name}-tls`, repositories: ['alpha', 'beta'].map(repository => ({
   name: repository, authSecret: `${name}-auth`, passwordSecret: `${name}-key`, ...(recovery ? { recovery: { host: host('secondary'), repository, credentialsSecret: 'secondary-reader' } } : {}) })) });
 let caText;
 function credentials(name, password = randomBytes(32).toString('hex')) {

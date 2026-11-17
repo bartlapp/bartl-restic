@@ -160,9 +160,11 @@ try {
   secret('primary-auth', { htpasswd: auth.join('\n') + '\n' }); secret('primary-key', { password });
   secret('primary-tls', { 'tls.crt': readFileSync(join(privateDir, 'tls.crt'), 'utf8'), 'tls.key': readFileSync(join(privateDir, 'tls.key'), 'utf8') }, 'kubernetes.io/tls');
   apply({ apiVersion: 'v1', kind: 'PersistentVolumeClaim', metadata: { name: 'primary-data' }, spec: { accessModes: ['ReadWriteOnce'], resources: { requests: { storage: '3Gi' } } } });
-  const values = { image: process.env.BARTL_RESTIC_IMAGE, existingClaim: 'primary-data', tlsSecret: 'primary-tls', repositories: [{ name: 'alpha', authSecret: 'primary-auth', passwordSecret: 'primary-key' }] };
-  const valuesPath = join(privateDir, 'values.json'); writeFileSync(valuesPath, JSON.stringify(values), { mode: 0o600 });
-  command('helm', ['upgrade', '--install', 'primary', join(root, 'chart'), '--namespace', namespace, '-f', valuesPath, '--wait=legacy', '--timeout', '5m'], { timeout: 330000 });
+  const resticService = { image: process.env.BARTL_RESTIC_IMAGE, hostname: host('primary'), ingress: { enabled: false }, tls: { managed: false },
+    existingClaim: 'primary-data', tlsSecret: 'primary-tls', repositories: [{ name: 'alpha', authSecret: 'primary-auth', passwordSecret: 'primary-key' }] };
+  const valuesPath = join(privateDir, 'values.json');
+  writeFileSync(valuesPath, JSON.stringify({ installation: namespace, services: { restic: resticService } }), { mode: 0o600 });
+  command('helm', ['upgrade', '--install', 'primary', process.env.BARTL_RESTIC_CHART || join(root, 'chart'), '--namespace', namespace, '-f', valuesPath, '--wait=legacy', '--timeout', '5m'], { timeout: 330000 });
   await state('Ready');
   const volumeMounts = ['reader', 'writer', 'admin'].map(role => ({ name: role, mountPath: `/credentials/${role}`, readOnly: true }));
   apply({ apiVersion: 'v1', kind: 'Pod', metadata: { name: 'primary-client' }, spec: { automountServiceAccountToken: false, restartPolicy: 'Never',

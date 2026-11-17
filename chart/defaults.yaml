@@ -1,0 +1,20 @@
+replicas: 1
+image: ghcr.io/bartlapp/bartl-restic-controller@sha256:f174793e5c622d7eb1d4ae384ac358ec804dae735ddafe2243d710c48b7b8fb3
+existingClaim: repository
+tlsSecret: repository-tls
+tls:
+  managed: true
+  acmeServer: https://acme-v02.api.letsencrypt.org/directory
+ingress:
+  enabled: true
+  entryPoint: websecure
+repositories: []
+replication: []
+maintenance:
+  enabled: false
+  name: maintenance
+  repository: ""
+  action: check
+  snapshot: ""
+  host: ""
+  credentialsSecret: ""

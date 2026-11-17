@@ -1,31 +1,17 @@
-{{- $name := include "bartl-restic.name" . -}}
-{{- $repos := dict -}}
-{{- range .Values.repositories -}}
-{{- if hasKey $repos .name -}}{{- fail "repository names must be unique" -}}{{- end -}}
-{{- $_ := set $repos .name true -}}
-{{- end -}}
-{{- $copies := dict -}}
-{{- $routes := dict -}}
-{{- $localHosts := list $name (printf "%s.%s" $name .Release.Namespace) (printf "%s.%s.svc" $name .Release.Namespace) (printf "%s.%s.svc.cluster.local" $name .Release.Namespace) -}}
-{{- range .Values.replication -}}
-{{- if hasKey $copies .name -}}{{- fail "replication names must be unique" -}}{{- end -}}
-{{- $_ := set $copies .name true -}}
-{{- if not (hasKey $repos .repository) -}}{{- fail "replication.repository must name a declared repository" -}}{{- end -}}
-{{- $route := printf "%s|%s|%s" .repository (lower .destination.host) .destination.repository -}}
-{{- if hasKey $routes $route -}}{{- fail "replication source/destination pairs must be unique" -}}{{- end -}}
-{{- $_ := set $routes $route true -}}
-{{- if and (eq .repository .destination.repository) (has (lower .destination.host) $localHosts) -}}{{- fail "replication destination must not be the same local source repository" -}}{{- end -}}
-{{- end }}
+{{- if eq .Values.renderMode "deployment" -}}
+{{- $service := include "restic.service" . | fromYaml -}}
+{{- $name := include "bartl-restic.name" . }}
 apiVersion: restic.bartl.sh/v1alpha1
 kind: ResticApplication
 metadata:
   name: {{ $name }}
 spec:
-  replicas: {{ .Values.application.replicas }}
-  image: {{ .Values.image | quote }}
-  existingClaim: {{ .Values.existingClaim | quote }}
-  tlsSecret: {{ .Values.tlsSecret | quote }}
+  replicas: {{ $service.replicas }}
+  image: {{ $service.image | quote }}
+  existingClaim: {{ $service.existingClaim | quote }}
+  tlsSecret: {{ $service.tlsSecret | quote }}
   repositories:
-    {{- toYaml .Values.repositories | nindent 4 }}
+    {{- toYaml $service.repositories | nindent 4 }}
   replication:
-    {{- toYaml .Values.replication | nindent 4 }}
+    {{- toYaml $service.replication | nindent 4 }}
+{{- end }}

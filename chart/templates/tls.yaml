@@ -1,0 +1,32 @@
+{{- if eq .Values.renderMode "deployment" }}
+{{- $service := include "restic.service" . | fromYaml }}
+{{- $name := include "bartl-restic.name" . }}
+{{- if $service.tls.managed }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ $name }}-acme
+spec:
+  acme:
+    server: {{ $service.tls.acmeServer | quote }}
+    privateKeySecretRef:
+      name: {{ $name }}-acme-account
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: traefik
+            serviceType: ClusterIP
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ $service.tlsSecret | quote }}
+spec:
+  secretName: {{ $service.tlsSecret | quote }}
+  dnsNames:
+    - {{ $service.hostname | quote }}
+  issuerRef:
+    name: {{ $name }}-acme
+    kind: Issuer
+{{- end }}
+{{- end }}
