@@ -202,9 +202,11 @@ while IFS= read -r repository; do
     --from-file=restPassword="$directory/admin.restPassword" \
     --from-file=password="$directory/password" \
     --from-file=ca.crt="$INSTALL_DIR/protected/ca.crt" --dry-run=client -o yaml |
-    kubectl --context "$CTX" apply -f -
+    kubectl --context "$CTX" apply --server-side --field-manager=restic-preparation -f -
 done < <(INSTANCE="$INSTANCE" yq -r '(.backup.providers[strenv(INSTANCE)].repositories // {}) | keys | .[]' "$INSTALL_DIR/restic-connections.yaml")
 ```
+
+Secrets containing CA bundles use server-side apply so a full public trust bundle is not duplicated into Kubernetes' size-limited last-applied annotation.
 
 An idle endpoint needs only storage and TLS; skip repository/CA preparation until adding a repository. Consumers receive only their own repository key and reader/writer transport credentials, never endpoint admin credentials. No password belongs in values, a repository URL, Git or diagnostic output.
 
@@ -218,7 +220,7 @@ kubectl --context "$CTX" -n "$NS" create secret generic secondary-reader \
   --from-file=restPassword=/protected/secondary/reader.restPassword \
   --from-file=password=/protected/secondary/password \
   --from-file=ca.crt=/protected/secondary/ca.crt --dry-run=client -o yaml |
-  kubectl --context "$CTX" apply -f -
+  kubectl --context "$CTX" apply --server-side --field-manager=restic-preparation -f -
 ```
 
 `reader.username` must contain exactly `reader`. The key and transport password belong to the selected secondary repository, not the lost primary.
@@ -380,7 +382,7 @@ for consumer in keycloak paperless; do
       --from-file=restPassword="$directory/$role.restPassword" \
       --from-file=password="$directory/password" \
       --from-file=ca.crt="$INSTALL_DIR/protected/ca.crt" --dry-run=client -o yaml |
-      kubectl --context "$consumer_ctx" apply -f -
+      kubectl --context "$consumer_ctx" apply --server-side --field-manager=restic-preparation -f -
   done
 done
 ```
