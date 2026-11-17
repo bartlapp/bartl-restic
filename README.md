@@ -16,14 +16,6 @@ Specify accepted data loss and interruption, replication-outage allowance, recov
 
 Define primary and independent secondary retention, required holds, deletion approval and capacity monitoring. Retention must preserve the consumers' required complete recovery points and enough primary history to cover the accepted replication outage. The package neither selects points for deletion nor schedules retention; an operator executes the native maintenance procedure under those recorded rules. Keep destructive admin credentials separate from consumer and replication credentials.
 
-## Package-owned onboarding profile
-
-[`onboarding/package.yaml`](onboarding/package.yaml) declares the `bartl-onboarding/v1` profile, published immutable chart/image references, `backup` hostname prefix, `restic-endpoint` role and complete installation seed. Its `defaults.helm` retains the native chart shape. The generic consumer resolves repository membership and authentication/encryption Secret references through that role; the package adapter does not duplicate shared Restic protocol binding.
-
-[`onboarding/render.jq`](onboarding/render.jq) exports `prepare($i; $id)`, `configure($i; $id)`, `resources($i; $id)` and `files($i; $id)`. Each receives one application object, the full inventory as `$i` and its instance key as `$id`. `prepare` declares the chart-derived readiness resource/name; `configure` preserves the resolved native values; `resources` returns the TLS Certificate and Traefik TLS-passthrough `IngressRouteTCP`; `files` returns an empty map. Namespace and PVC generation remain generic.
-
-The profile seeds new customer configuration and is snapshotted by its consumer. Its initial empty repository list must be populated by selected clients before installing published 0.2.1, which does not support an idle endpoint. The unreleased source behavior described below does not change the pinned artifacts. Native Helm and kubectl operating commands remain unchanged.
-
 ## Disaster recovery
 
 Loss of one provider must not require rebuilding the backup endpoint before consumers can recover. Maintain an independently usable repository at another provider, exposed through its own endpoint. A replacement application reads its selected point there with independently retained credentials and keys. An archive that must first be fully restored into a repository is insufficient. Provider names, URLs and recovery inputs belong in customer configuration.
