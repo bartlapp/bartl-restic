@@ -295,9 +295,6 @@ type plan struct {
 }
 
 func lifecycle(ctx context.Context, config Config, identity Result) ([]RepositoryResult, error) {
-	if len(config.Repositories) == 0 {
-		return nil, errors.New("no repositories declared")
-	}
 	lock, err := os.OpenFile(filepath.Join(config.DataDirectory, ".bartl-lock"), os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return nil, err

@@ -57,6 +57,16 @@ Each declared repository has one URL, `rest:https://HOST/REPOSITORY/`, and its o
 
 Native locks coordinate cooperative Restic clients. A holder of reader or writer credentials can delete lock objects; locks are not protection against a malicious credential holder. Neither the chart nor maintenance disables consumers or automatically unlocks a repository.
 
+### Local unreleased change: idle endpoints
+
+The source chart, CRD and native worker accept `repositories: []`. This starts an idle HTTPS endpoint on the existing PVC with the configured TLS Secret, without repository authentication Secrets, encryption keys or replication work. Requests have no declared repository route and receive HTTP 404. The endpoint still passes the normal finite lifecycle Job, current-intent admission checks, exclusive storage lock, PVC ownership fence and HTTPS serving guard; an empty list is not a shortcut around admission.
+
+To add the first repository, create its independent authentication and encryption-key Secrets and upgrade the same installation with its repository declaration. The controller drains the idle endpoint and admits a new native lifecycle before exposing the new route. Stop and resume use the ordinary `application.replicas` intent; resume performs fresh native observation, including when the endpoint remains idle.
+
+Removing a declaration never authorizes data deletion. Undeclared local data remains on the claim and causes native re-admission to fail closed, even if the new repository list is empty. Restore the declaration before expecting `Ready`; a failed admission retains its normal stopped/failure safeguards and requires the documented failed-target handling. Do not erase retained history to make an idle endpoint start.
+
+This behavior is local and unreleased. Published 0.2.1 rejects zero repositories. Both a candidate controller/worker image built from this source and the updated chart/CRD are required; applying the relaxed schema alone is insufficient. The published references below remain unchanged.
+
 ### Published release 0.2.1
 
 Install the published Helm chart and combined controller/worker image; no source checkout or build is required. The image supports `linux/amd64`. Retain these immutable references with the installation configuration:
@@ -383,6 +393,8 @@ The observation runner isolates the endpoint's API traffic while authenticated c
 Output defaults to a private external temporary directory. `BARTL_RESTIC_EVIDENCE_DIR` selects another external path; checkout paths and symlink aliases are rejected. `raw.json` holds redacted diagnostics; `qualification.json` holds the selected summary and source provenance. Values and manifests are run artifacts. Provenance records run-start HEAD, dirty state and SHA-256 of chart, controller/worker, dependencies, image-build and test files; dirty runs qualify those bytes, not HEAD alone.
 
 Use `go test ./...` for native boundary regressions and `node --test tests/artifacts.test.mjs` for output isolation, compact-record selection and provenance. Cluster scenarios establish service behavior. Keep artifacts outside Git; put tested versions, concise results, material limits and cleanup/budget outcome in the integration description. Do not add session reports, transcripts, object dumps or nested regression records. Existing historical evidence stays available.
+
+For the unreleased idle behavior, run `go test ./internal/native ./internal/controller`. Put native Restic 0.19.1 on `PATH` to exercise `TestIdleLifecycleAddsFirstNativeRepository`; without it that test explicitly skips. The other idle regressions exercise storage exclusion, interrupted-transition refusal, undeclared-data preservation, idle credential mounts, stop/resume admission and invalidation of idle success when adding the first repository. These local tests do not replace a candidate-image cluster smoke: install `repositories: []`, verify current-generation `Ready` and TLS HTTP 404, stop/resume, then add a repository and qualify authenticated backup/restore. Use the existing authorized Hetzner lab and the candidate image, not the published 0.2.1 image.
 
 To exercise supported uninstall against the published artifacts, use the `CHART` and `IMAGE` references from the installation section on an authorized disposable Hetzner cluster:
 

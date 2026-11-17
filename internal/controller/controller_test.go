@@ -198,3 +198,123 @@ func TestFailedAdmissionSurvivesStopAndRun(t *testing.T) {
 		})
 	}
 }
+
+func idleFixture(t *testing.T) (*Reconciler, *api.ResticApplication) {
+	t.Helper()
+	r, a := fixture(t)
+	ctx := context.Background()
+	a.Spec.Repositories = []api.Repository{}
+	if err := r.Update(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"auth", "key"} {
+		if err := r.Delete(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: a.Namespace}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pvc := new(corev1.PersistentVolumeClaim)
+	if err := r.Get(ctx, r.key("data"), pvc); err != nil {
+		t.Fatal(err)
+	}
+	hash, err := r.inputHash(ctx, a, pvc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.Status.Operation.InputHash = hash
+	if err := r.Status().Update(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	return r, a
+}
+
+func TestIdleEndpointRequiresOnlyTLSAndRetainsClaimFence(t *testing.T) {
+	r, a := idleFixture(t)
+	a = step(t, r)
+	d := new(appsv1.Deployment)
+	if err := r.Get(context.Background(), r.key(a.Name), d); err != nil {
+		t.Fatal(err)
+	}
+	secrets := []string{}
+	for _, volume := range d.Spec.Template.Spec.Volumes {
+		if volume.Secret != nil {
+			secrets = append(secrets, volume.Secret.SecretName)
+		}
+	}
+	if len(secrets) != 1 || secrets[0] != "tls" {
+		t.Fatalf("idle endpoint needs repository credentials: %v", secrets)
+	}
+	pvc := new(corev1.PersistentVolumeClaim)
+	if err := r.Get(context.Background(), r.key("data"), pvc); err != nil {
+		t.Fatal(err)
+	}
+	if pvc.Annotations[claimOwner] != string(a.UID) {
+		t.Fatal("idle endpoint lost PVC ownership")
+	}
+}
+
+func TestIdleStopRestartRequiresFreshNativeAdmission(t *testing.T) {
+	r, a := idleFixture(t)
+	ctx := context.Background()
+	a.Spec.Replicas = 0
+	a.Generation = 2
+	if err := r.Update(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	a = step(t, r)
+	if a.Status.State != "Stopped" || a.Status.Operation != nil {
+		t.Fatalf("idle stop retained old admission: %+v", a.Status)
+	}
+	r = &Reconciler{Client: r.Client, Scheme: r.Scheme, Namespace: r.Namespace, Name: r.Name, Release: r.Release}
+	a.Spec.Replicas = 1
+	a.Generation = 3
+	if err := r.Update(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	a = step(t, r)
+	noEndpoint(t, r)
+	if a.Status.Operation == nil || a.Status.Operation.ID == "old-operation" || a.Status.Operation.Result != "Running" {
+		t.Fatalf("idle resume bypassed native lifecycle: %+v", a.Status)
+	}
+	job := new(batchv1.Job)
+	if err := r.Get(ctx, r.key(a.Status.Operation.JobName), job); err != nil {
+		t.Fatal(err)
+	}
+	for _, volume := range job.Spec.Template.Spec.Volumes {
+		if volume.Secret != nil {
+			t.Fatalf("idle lifecycle needs a repository secret: %+v", volume)
+		}
+	}
+}
+
+func TestAddingFirstRepositoryInvalidatesIdleAdmission(t *testing.T) {
+	r, a := idleFixture(t)
+	ctx := context.Background()
+	a.Spec.Repositories = []api.Repository{{Name: "alpha", AuthSecret: "new-auth", PasswordSecret: "new-key"}}
+	a.Generation = 2
+	if err := r.Update(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"new-auth", "new-key"} {
+		if err := r.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: a.Namespace}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a = step(t, r)
+	noEndpoint(t, r)
+	if a.Status.Operation == nil || a.Status.Operation.ID == "old-operation" || a.Status.Operation.Generation != 2 || a.Status.Operation.Result != "Running" {
+		t.Fatalf("first repository reused idle success: %+v", a.Status)
+	}
+	job := new(batchv1.Job)
+	if err := r.Get(ctx, r.key(a.Status.Operation.JobName), job); err != nil {
+		t.Fatal(err)
+	}
+	foundKey := false
+	for _, volume := range job.Spec.Template.Spec.Volumes {
+		if volume.Secret != nil && volume.Secret.SecretName == "new-key" {
+			foundKey = true
+		}
+	}
+	if !foundKey {
+		t.Fatal("first repository lifecycle lacks its independent native key")
+	}
+}

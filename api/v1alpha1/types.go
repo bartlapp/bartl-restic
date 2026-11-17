@@ -1,6 +1,8 @@
 package v1alpha1
 
 import (
+	"slices"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -79,7 +81,7 @@ func (a *ResticApplication) DeepCopyObject() runtime.Object {
 	b := new(ResticApplication)
 	*b = *a
 	a.ObjectMeta.DeepCopyInto(&b.ObjectMeta)
-	b.Spec.Repositories = append([]Repository(nil), a.Spec.Repositories...)
+	b.Spec.Repositories = slices.Clone(a.Spec.Repositories)
 	for i := range b.Spec.Repositories {
 		if a.Spec.Repositories[i].Recovery != nil {
 			v := *a.Spec.Repositories[i].Recovery

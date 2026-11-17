@@ -8,6 +8,7 @@ existingClaim: ""
 tlsSecret: ""
 # Each repository has an independent native key (Secret key password) and endpoint
 # authentication (Secret key htpasswd with reader, writer and admin accounts).
+# An empty list runs an idle TLS endpoint, without repository credentials.
 repositories: []
 # - name: keycloak
 #   authSecret: keycloak-repository-auth
