@@ -184,9 +184,26 @@ while IFS= read -r repository; do
       (set -o noclobber; openssl rand -hex 32 | tr -d '\n' > "$directory/$key")
     fi
   done
-  for role in writer reader admin; do
-    printf '%s:%s\n' "$role" "$(openssl passwd -apr1 -stdin < "$directory/$role.restPassword")"
-  done > "$directory/htpasswd"
+  if [ -e "$directory/htpasswd" ]; then
+    for role in writer reader admin; do
+      hash=$(while IFS=: read -r account encoded; do
+        [ "$account" != "$role" ] || printf '%s\n' "$encoded"
+      done < "$directory/htpasswd")
+      case "$hash" in
+        '$apr1$'*) salt=${hash#\$apr1\$}; salt=${salt%%\$*} ;;
+        *) printf 'Missing or unsupported retained account: %s/%s\n' "$repository" "$role" >&2; exit 1 ;;
+      esac
+      test "$(openssl passwd -apr1 -salt "$salt" -stdin < "$directory/$role.restPassword")" = "$hash" || {
+        printf 'Retained authentication conflicts with password: %s/%s\n' "$repository" "$role" >&2
+        exit 1
+      }
+    done
+  else
+    (set -o noclobber
+      for role in writer reader admin; do
+        printf '%s:%s\n' "$role" "$(openssl passwd -apr1 -stdin < "$directory/$role.restPassword")"
+      done > "$directory/htpasswd")
+  fi
   AUTH=$(INSTANCE="$INSTANCE" REPOSITORY="$repository" yq -er '.backup.providers[strenv(INSTANCE)].repositories[strenv(REPOSITORY)].authSecret' "$INSTALL_DIR/restic-connections.yaml")
   KEY=$(INSTANCE="$INSTANCE" REPOSITORY="$repository" yq -er '.backup.providers[strenv(INSTANCE)].repositories[strenv(REPOSITORY)].passwordSecret' "$INSTALL_DIR/restic-connections.yaml")
   ADMIN=$(INSTANCE="$INSTANCE" REPOSITORY="$repository" yq -er '.backup.providers[strenv(INSTANCE)].repositories[strenv(REPOSITORY)].adminSecret' "$INSTALL_DIR/restic-connections.yaml")
@@ -206,7 +223,7 @@ while IFS= read -r repository; do
 done < <(INSTANCE="$INSTANCE" yq -r '(.backup.providers[strenv(INSTANCE)].repositories // {}) | keys | .[]' "$INSTALL_DIR/restic-connections.yaml")
 ```
 
-Secrets containing CA bundles use server-side apply so a full public trust bundle is not duplicated into Kubernetes' size-limited last-applied annotation.
+Retain `htpasswd` with the passwords: its salted hashes are generated only once, and replay verifies them without changing the live authentication Secret. Regenerating hashes while running would trigger needless re-admission; sequential changes during admitted work can correctly fail the endpoint closed. Secrets containing CA bundles use server-side apply so a full public trust bundle is not duplicated into Kubernetes' size-limited last-applied annotation.
 
 An idle endpoint needs only storage and TLS; skip repository/CA preparation until adding a repository. Consumers receive only their own repository key and reader/writer transport credentials, never endpoint admin credentials. No password belongs in values, a repository URL, Git or diagnostic output.
 
