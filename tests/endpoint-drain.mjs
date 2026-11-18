@@ -12,6 +12,7 @@ export async function qualifyDrain({ k, get, shell, assert, until, namespace, na
   assert('drain fixture has a ready native nginx endpoint', !!pod && !!pod.status.podIP, { namespace });
   const ip = pod.status.podIP;
   const initialRestarts = pod.status.containerStatuses.find(container => container.name === 'https').restartCount;
+  const initialContainerID = pod.status.containerStatuses.find(container => container.name === 'https').containerID;
   const connect = `--noproxy '*' --http1.1 --connect-to ${quote(`${hostname}:443:${ip.includes(':') ? `[${ip}]` : ip}:8443`)}`;
   const auth = '--cacert /credentials/reader/ca.crt --user "$(cat /credentials/reader/username):$(cat /credentials/reader/restPassword)"';
   const curl = `curl --silent --show-error ${connect} ${auth}`;
@@ -83,7 +84,8 @@ done`, { record: false, allowFailure: true });
     const exited = await until('guard exits after graceful nginx completion', () => {
       const current = get('pod', pod.metadata.name, { record: false });
       const status = current.status.containerStatuses?.find(container => container.name === 'https');
-      const terminated = status?.state?.terminated || (status?.restartCount > initialRestarts ? status.lastState?.terminated : null);
+      const terminated = [status?.state?.terminated, status?.lastState?.terminated]
+        .find(result => result?.containerID === initialContainerID);
       return terminated ? { status, terminated } : null;
     }, 15000);
     const logs = k(['logs', pod.metadata.name, '-c', 'https', ...(exited.status.restartCount > initialRestarts && !exited.status.state?.terminated ? ['--previous'] : [])], { record: false, allowFailure: true });
