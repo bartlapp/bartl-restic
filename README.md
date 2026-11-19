@@ -67,7 +67,7 @@ Removing a declaration never authorizes data deletion. Undeclared local data rem
 
 ### Obtain release 0.3.0
 
-Use workstation Bash, Helm 4.3.0, compatible kubectl, Mike Farah yq v4, jq, OpenSSL 3, curl, dig and shasum. Keep shell tracing off. Start in a new working directory; the public chart and digest-pinned amd64 image require no source checkout, registry login or company tooling:
+Use the [operator workstation](https://github.com/bartlapp/bartl-app/blob/main/docs/operator-workstation.md) with Bash, Helm 4.x (minimum supported recipe version 4.3.0), compatible kubectl, Mike Farah yq v4, jq, OpenSSL 3, curl, dig and shasum. The workstation guide selects the current installation version; historical qualification retains the version actually exercised. Keep shell tracing off. Start in a new working directory; the public chart and digest-pinned amd64 image require no source checkout, registry login or company tooling:
 
 ```bash
 set -euo pipefail
