@@ -67,22 +67,22 @@ Removing a declaration never authorizes data deletion. Undeclared local data rem
 
 ### Obtain release 0.3.0
 
-Use workstation Bash, Helm 4.3.0, compatible kubectl, Mike Farah yq v4, jq, OpenSSL 3, curl, dig and shasum. Keep shell tracing off. Start in a new working directory; the public chart and digest-pinned amd64 image require no source checkout, registry login or company tooling:
+Use workstation Bash, Helm 4.3.0, compatible kubectl, Mike Farah yq v4, jq, OpenSSL 3, curl, dig and shasum. Keep shell tracing off. Reuse the installation's exported absolute `VALUES` and `WORK_DIR`. For a new installation only, the defaults below create its one shared file; public artifacts need no source checkout, registry login or company tooling:
 
 ```bash
 set -euo pipefail
 umask 077
-mkdir bartl-restic
-cd bartl-restic
-helm pull oci://ghcr.io/bartlapp/bartl-restic --version 0.3.0
-printf '%s  bartl-restic-0.3.0.tgz\n' \
-  57feb5b39b325e3972fe9a9c870cd6c0c5fe54f2f91faba8b4b1652fb4918253 > SHA256SUMS
-shasum -a 256 --check SHA256SUMS
-CHART="$PWD/bartl-restic-0.3.0.tgz"
+INSTALLATION_ID=${INSTALLATION_ID:-acme}
+WORK_DIR=${WORK_DIR:-"$HOME/bartl/$INSTALLATION_ID"}
+mkdir -p "$WORK_DIR"
+WORK_DIR=$(cd "$WORK_DIR" && pwd -P)
+export WORK_DIR VALUES="${VALUES:-$WORK_DIR/installation.yaml}"
+case "$VALUES" in /*) ;; *) printf 'VALUES must be absolute\n' >&2; exit 1 ;; esac
+mkdir -p "$WORK_DIR/packages"
 IMAGE=ghcr.io/bartlapp/bartl-restic-controller@sha256:f174793e5c622d7eb1d4ae384ac358ec804dae735ddafe2243d710c48b7b8fb3
 ```
 
-Retain the verified archive, checksum and pinned image reference independently of the target. The chart pins the combined controller/worker image; do not override it with the 0.2.1 image. Release artifact identities and exact-artifact qualification belong in the [0.3.0 release record](https://github.com/bartlapp/bartl-restic/releases/tag/v0.3.0).
+Retain the selected verified archive, its expected `packages.<package>.chartSha256` in `installation.yaml` and the pinned image reference independently of the target. The selection block below acquires and verifies the archive. The chart pins the combined controller/worker image; do not override it with the 0.2.1 image. Release artifact identities and exact-artifact qualification belong in the [0.3.0 release record](https://github.com/bartlapp/bartl-restic/releases/tag/v0.3.0).
 
 For the historical upgrade baseline only, retain 0.2.1 separately:
 
@@ -98,37 +98,75 @@ Its archive SHA-256 is `94293548ac5fd0a86976e4af0e678596a53c8d0144dad1983810cea6
 The cluster needs amd64 nodes, registry egress, enforced NetworkPolicy, a writable ReadWriteOnce PVC with POSIX permissions, locking, atomic rename and fsync, and permission to install the shared `ResticApplication` CRD and namespace-scoped resources. Supply enough repository, copy and reconstruction capacity before starting. The default access path needs Traefik with its `IngressRouteTCP` CRD and `websecure` entrypoint, cert-manager, public ports 80/443 and working public DNS for ACME. The [base-k3s recipe](https://github.com/bartlapp/base-k3s/blob/main/README.md#what-this-recipe-delivers), completed through its handover checks, provides the single-node base; any equivalent cluster suffices. Retain absolute kubeconfig paths in every terminal. This package provisions neither infrastructure nor DNS.
 
 ```bash
-CTX=$(kubectl config current-context)
-NS=backup
-INSTANCE=restic
-INSTALL_DIR="$PWD/installation"
+test -f "$VALUES" || printf '{}\n' > "$VALUES"
+INSTALLATION_ID="$INSTALLATION_ID" yq -i '
+  .installation = (.installation // strenv(INSTALLATION_ID)) |
+  .dns.root = (.dns.root // "acme.fke.systems") |
+  .services.restic.release = (.services.restic.release // "0.3.0") |
+  .services.restic.repositories = (.services.restic.repositories // [{"name": "records"}]) |
+  .packages.restic = (.packages.restic // {
+    "version": "0.3.0", "chart": "oci://ghcr.io/bartlapp/bartl-restic",
+    "chartSha256": "57feb5b39b325e3972fe9a9c870cd6c0c5fe54f2f91faba8b4b1652fb4918253"}) |
+  .deployments.restic = (.deployments.restic // {
+    "instance": "restic", "cluster": "blue", "namespace": "backup",
+    "release": "backup", "package": "restic"})
+' "$VALUES"
+```
+
+Retain the target context in `clusters.<cluster>.kubeconfig.context` from base handover or an equivalent cluster. Supply protected `KUBECONFIG` or use the cluster-derived local file; do not store a workstation path in inventory or select the terminal's current context on resume:
+
+```bash
+DEPLOYMENT=${DEPLOYMENT:-restic}
+INSTANCE=$(DEPLOYMENT="$DEPLOYMENT" yq -er '.deployments[strenv(DEPLOYMENT)].instance' "$VALUES")
+HELM_INSTANCE=${INSTANCE//./\\.}
+CLUSTER=$(DEPLOYMENT="$DEPLOYMENT" yq -er '.deployments[strenv(DEPLOYMENT)].cluster' "$VALUES")
+NS=$(DEPLOYMENT="$DEPLOYMENT" yq -er '.deployments[strenv(DEPLOYMENT)].namespace' "$VALUES")
+RELEASE=$(DEPLOYMENT="$DEPLOYMENT" yq -er '.deployments[strenv(DEPLOYMENT)].release' "$VALUES")
+PACKAGE=$(DEPLOYMENT="$DEPLOYMENT" yq -er '.deployments[strenv(DEPLOYMENT)].package' "$VALUES")
+if [ -z "${ACCESS_CLUSTER:-}" ]; then
+  ACCESS_CLUSTER="$CLUSTER"
+  ACCESS_FILE=${KUBECONFIG:-}
+fi
+if [ "$CLUSTER" = "$ACCESS_CLUSTER" ] && [ -n "$ACCESS_FILE" ]; then
+  export KUBECONFIG="$ACCESS_FILE"
+else
+  export KUBECONFIG="$WORK_DIR/clusters/$CLUSTER/base/kubeconfig"
+fi
+
+# ACCESS_FILE remains bound to ACCESS_CLUSTER; another target uses its own base file.
+# To supply a different protected access file, set both variables for that cluster.
+CTX=$(CLUSTER="$CLUSTER" yq -er '.clusters[strenv(CLUSTER)].kubeconfig.context' "$VALUES")
+kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" config view --minify >/dev/null
+VERSION=$(PACKAGE="$PACKAGE" yq -er '.packages[strenv(PACKAGE)].version' "$VALUES")
+CHART="$WORK_DIR/packages/bartl-restic-$VERSION.tgz"
+CHART_REF=$(PACKAGE="$PACKAGE" yq -er '.packages[strenv(PACKAGE)].chart' "$VALUES")
+CHART_SHA256=$(PACKAGE="$PACKAGE" yq -er '.packages[strenv(PACKAGE)].chartSha256' "$VALUES")
+if [ ! -f "$CHART" ]; then helm pull "$CHART_REF" --version "$VERSION" --destination "$WORK_DIR/packages"; fi
+printf '%s  %s\n' "$CHART_SHA256" "$CHART" | shasum -a 256 --check -
+test "$RELEASE" = backup # Existing resource names in this procedure.
+INSTALL_DIR="$WORK_DIR/clusters/$CLUSTER/applications/$INSTANCE"
+if [ "$DEPLOYMENT" != "$INSTANCE" ]; then INSTALL_DIR="$INSTALL_DIR/deployments/$DEPLOYMENT"; fi
 mkdir -p "$INSTALL_DIR/protected/repositories"
-VALUES="$INSTALL_DIR/installation.yaml"
-kubectl --context "$CTX" get nodes,storageclass
-kubectl --context "$CTX" create namespace "$NS" --dry-run=client -o yaml |
-  kubectl --context "$CTX" apply -f -
+kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" get nodes,storageclass
+kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" create namespace "$NS" --dry-run=client -o yaml |
+  kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" apply -f -
 ```
 
-Create `"$VALUES"` with your stable installation identity and real DNS root:
+Derive optional Helm arguments after selecting a deployment and again after changing its ingress intent:
 
-```yaml
-installation: learning-lab
-dns:
-  root: your-domain.example
-services:
-  restic:
-    release: "0.3.0"
-    repositories:
-      - name: records
+```bash
+INGRESS=$(DEPLOYMENT="$DEPLOYMENT" yq -r '.operations.deployments[strenv(DEPLOYMENT)].ingressEnabled | select(. != null)' "$VALUES")
+HELM_ARGS=()
+if [ -n "$INGRESS" ]; then HELM_ARGS+=(--set "services.$HELM_INSTANCE.ingress.enabled=$INGRESS"); fi
 ```
 
-For an idle endpoint, use `repositories: []` instead. This derives hostname `restic.your-domain.example`, one replica, claim `repository`, TLS Secret `repository-tls` and `records-repository-auth`/`records-repository-key` credential names. `release` is an optional exact-version guard. An explicit `hostname` overrides derivation; removing it restores the DNS-root rule. Another instance uses its own service key and `--set-string instance=...`. Selected service fields are strict; unrelated services and infrastructure are ignored. `resolved` is not required for operating Restic itself. The native CR/controller API remains unchanged.
+For an idle endpoint, retain `repositories: []`. These defaults derive hostname `restic.acme.fke.systems`, one replica, claim `repository`, TLS Secret `repository-tls` and `records-repository-auth`/`records-repository-key` credential names. `release` is an optional exact-version guard. An explicit `hostname` overrides derivation; removing it restores the DNS-root rule. Another instance uses its own service key and deployment mapping. Selected service fields are strict; unrelated services and infrastructure are ignored. `resolved` is not required for Restic itself. The native CR/controller API remains unchanged. Protected files remain independently retained operator inputs; an optional password store uses `credentials.passStore` with stable `applications/<instance>/...` paths, never placement-derived secret identities.
 
 Render the public nonsecret declarations before deployment and rerender whenever choices change:
 
 ```bash
 helm template backup "$CHART" -n "$NS" -f "$VALUES" \
-  --set-string instance="$INSTANCE" --set-string renderMode=connections \
+  --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" "${HELM_ARGS[@]}" --set-string renderMode=connections \
   --show-only templates/connections.yaml > "$INSTALL_DIR/restic-connections.yaml"
 RESTIC_HOST=$(INSTANCE="$INSTANCE" yq -er '.services[strenv(INSTANCE)].endpoints.https.hostname' "$INSTALL_DIR/restic-connections.yaml")
 TLS_SECRET=$(INSTANCE="$INSTANCE" yq -er '.credentials.bindings[strenv(INSTANCE)].tls.secretName' "$INSTALL_DIR/restic-connections.yaml")
@@ -140,7 +178,7 @@ Declarations work offline without infrastructure or credentials. Public fields a
 Create the declared claim using your StorageClass and capacity. This disposable example requests 20Gi; size production storage and headroom explicitly:
 
 ```bash
-kubectl --context "$CTX" -n "$NS" apply -f - <<EOF
+kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" apply -f - <<EOF
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -151,21 +189,21 @@ spec:
     requests:
       storage: 20Gi
 EOF
-kubectl --context "$CTX" -n "$NS" get pvc "$CLAIM"
+kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" get pvc "$CLAIM"
 ```
 
 For retained-state restart, reuse the intact claim instead; never attach another active installation's claim. A WaitForFirstConsumer claim can remain Pending until scheduling. Claim and Secrets are operator-owned and survive supported uninstall.
 
 ### HTTPS and protected inputs
 
-Point `"$RESTIC_HOST"` to the selected cluster's Traefik address (`kubectl --context "$CTX" -n kube-system get service traefik -o wide`). Confirm authoritative and public `dig` answers before expecting issuance. Default `tls.managed: true` creates a namespace-local ACME Issuer and Certificate; `tls.acmeServer` can select staging, which is not publicly trusted. cert-manager owns renewal. Default ingress is an `IngressRouteTCP` with `HostSNI` and TLS passthrough to Service port 443: nginx retains native TLS and per-repository authorization; Traefik does not terminate repository TLS.
+Point `"$RESTIC_HOST"` to the selected cluster's Traefik address (`kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n kube-system get service traefik -o wide`). Confirm authoritative and public `dig` answers before expecting issuance. Default `tls.managed: true` creates a namespace-local ACME Issuer and Certificate; `tls.acmeServer` can select staging, which is not publicly trusted. cert-manager owns renewal. Default ingress is an `IngressRouteTCP` with `HostSNI` and TLS passthrough to Service port 443: nginx retains native TLS and per-repository authorization; Traefik does not terminate repository TLS.
 
 For independently provided TLS, set `services.restic.tls.managed: false` and create the declared Secret:
 
 ```bash
-kubectl --context "$CTX" -n "$NS" create secret tls "$TLS_SECRET" \
+kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" create secret tls "$TLS_SECRET" \
   --cert=/protected/tls/fullchain.pem --key=/protected/tls/key.pem \
-  --dry-run=client -o yaml | kubectl --context "$CTX" apply -f -
+  --dry-run=client -o yaml | kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" apply -f -
 ```
 
 Keep external mode for existing manually managed certificates rather than silently adopting them. `ingress.enabled: false` omits routing, not native TLS/authentication; supply another TLS-preserving route to the Service. `ingress.entryPoint` defaults to `websecure`. The hostname must be reachable from consumers and native maintenance Jobs. The policy permits only TLS ingress on port 8443; rest-server listeners remain loopback-only.
@@ -207,19 +245,19 @@ while IFS= read -r repository; do
   AUTH=$(INSTANCE="$INSTANCE" REPOSITORY="$repository" yq -er '.backup.providers[strenv(INSTANCE)].repositories[strenv(REPOSITORY)].authSecret' "$INSTALL_DIR/restic-connections.yaml")
   KEY=$(INSTANCE="$INSTANCE" REPOSITORY="$repository" yq -er '.backup.providers[strenv(INSTANCE)].repositories[strenv(REPOSITORY)].passwordSecret' "$INSTALL_DIR/restic-connections.yaml")
   ADMIN=$(INSTANCE="$INSTANCE" REPOSITORY="$repository" yq -er '.backup.providers[strenv(INSTANCE)].repositories[strenv(REPOSITORY)].adminSecret' "$INSTALL_DIR/restic-connections.yaml")
-  kubectl --context "$CTX" -n "$NS" create secret generic "$AUTH" \
+  kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" create secret generic "$AUTH" \
     --from-file=htpasswd="$directory/htpasswd" --dry-run=client -o yaml |
-    kubectl --context "$CTX" apply -f -
-  kubectl --context "$CTX" -n "$NS" create secret generic "$KEY" \
+    kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" apply -f -
+  kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" create secret generic "$KEY" \
     --from-file=password="$directory/password" --dry-run=client -o yaml |
-    kubectl --context "$CTX" apply -f -
+    kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" apply -f -
   printf '%s' admin > "$directory/admin.username"
-  kubectl --context "$CTX" -n "$NS" create secret generic "$ADMIN" \
+  kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" create secret generic "$ADMIN" \
     --from-file=username="$directory/admin.username" \
     --from-file=restPassword="$directory/admin.restPassword" \
     --from-file=password="$directory/password" \
     --from-file=ca.crt="$INSTALL_DIR/protected/ca.crt" --dry-run=client -o yaml |
-    kubectl --context "$CTX" apply --server-side --field-manager=restic-preparation -f -
+    kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" apply --server-side --field-manager=restic-preparation -f -
 done < <(INSTANCE="$INSTANCE" yq -r '(.backup.providers[strenv(INSTANCE)].repositories // {}) | keys | .[]' "$INSTALL_DIR/restic-connections.yaml")
 ```
 
@@ -232,12 +270,12 @@ A repository entry may additionally declare `recovery: {host: secondary.example.
 For the example recovery declaration, create the reader Secret before deployment:
 
 ```bash
-kubectl --context "$CTX" -n "$NS" create secret generic secondary-reader \
+kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" create secret generic secondary-reader \
   --from-file=username=/protected/secondary/reader.username \
   --from-file=restPassword=/protected/secondary/reader.restPassword \
   --from-file=password=/protected/secondary/password \
   --from-file=ca.crt=/protected/secondary/ca.crt --dry-run=client -o yaml |
-  kubectl --context "$CTX" apply --server-side --field-manager=restic-preparation -f -
+  kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" apply --server-side --field-manager=restic-preparation -f -
 ```
 
 `reader.username` must contain exactly `reader`. The key and transport password belong to the selected secondary repository, not the lost primary.
@@ -245,16 +283,18 @@ kubectl --context "$CTX" -n "$NS" create secret generic secondary-reader \
 ### Deploy and inspect native admission
 
 ```bash
-helm upgrade --install backup "$CHART" --kube-context "$CTX" -n "$NS" -f "$VALUES" \
-  --set-string instance="$INSTANCE" --wait=legacy --timeout=5m
-GENERATION=$(kubectl --context "$CTX" -n "$NS" get resticapplication backup-restic -o jsonpath='{.metadata.generation}')
-kubectl --context "$CTX" -n "$NS" wait resticapplication/backup-restic \
+REPLICAS=$(DEPLOYMENT="$DEPLOYMENT" INSTANCE="$INSTANCE" yq -er '.operations.deployments[strenv(DEPLOYMENT)].replicas // .services[strenv(INSTANCE)].replicas // 1' "$VALUES")
+helm upgrade --install "$RELEASE" "$CHART" --kubeconfig "$KUBECONFIG" --kube-context "$CTX" -n "$NS" -f "$VALUES" \
+  --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
+  --set "services.$HELM_INSTANCE.replicas=$REPLICAS" "${HELM_ARGS[@]}" --wait=legacy --timeout=5m
+GENERATION=$(kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" get resticapplication backup-restic -o jsonpath='{.metadata.generation}')
+kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" wait resticapplication/backup-restic \
   --for="jsonpath={.status.conditions[?(@.type==\"Ready\")].observedGeneration}=$GENERATION" --timeout=30m
-kubectl --context "$CTX" -n "$NS" wait --for=condition=Ready resticapplication/backup-restic --timeout=30m
-kubectl --context "$CTX" -n "$NS" get resticapplication backup-restic -o json
-JOB=$(kubectl --context "$CTX" -n "$NS" get resticapplication backup-restic -o jsonpath='{.status.operation.jobName}')
-kubectl --context "$CTX" -n "$NS" logs "job/$JOB"
-kubectl --context "$CTX" -n "$NS" get certificate,service
+kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" wait --for=condition=Ready resticapplication/backup-restic --timeout=30m
+kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" get resticapplication backup-restic -o json
+JOB=$(kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" get resticapplication backup-restic -o jsonpath='{.status.operation.jobName}')
+kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" logs "job/$JOB"
+kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" get certificate,service
 ```
 
 The native worker owns initialization; do not run manual `restic init`. Wait for the declared certificate to be Ready and check real HTTPS before enabling consumers. An idle endpoint returns HTTP 404 over trusted TLS. For a populated standalone endpoint, read `backup.providers.<instance>.repositories.<name>.repository`, use the retained writer credentials/key with native `restic backup`, then list/restore with reader credentials and verify contents. Applications own consistent capture; a successful arbitrary file backup does not qualify an application's recovery point. Changes to local password, authentication or TLS Secrets trigger controlled re-admission and restart.
@@ -291,7 +331,7 @@ Require `status.observedGeneration` and the selected condition's `observedGenera
 The CRD is included in the published chart. Helm installs a missing CRD but does not upgrade an existing definition. Before a package upgrade, extract the selected published chart and explicitly apply its CRD:
 
 ```bash
-kubectl --context "$CTX" apply -f <(helm show crds "$CHART")
+kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" apply -f <(helm show crds "$CHART")
 ```
 
 Upgrading the former endpoint-only chart is an ownership cutover with interruption: retain the PVC/Secrets, add each repository's `passwordSecret`, apply the selected CRD, then upgrade. Helm removes the old directly rendered endpoint resources; the controller recreates them only after native admission. Do not run the old release or another controller against the same claim.
@@ -300,25 +340,73 @@ Upgrading the former endpoint-only chart is an ownership cutover with interrupti
 
 This connects two independent consumer releases to separate repositories; it is not a generic resolver or an umbrella chart. The same absolute `"$VALUES"` travels to all three releases, even when the backup endpoint and applications run on independent clusters. Keep `CTX`/`NS` for the backup cluster and select the two consumer contexts/namespaces explicitly below. Both consumer clusters must reach the declared public HTTPS endpoint and trust its certificate.
 
-The exact-version [Keycloak 0.6.1 procedure](https://github.com/bartlapp/bartl-keycloak/blob/v0.6.1/README.md) and [Paperless 0.2.0 procedure](https://github.com/bartlapp/bartl-paperless/blob/v0.2.0/README.md) own application storage, retained native credentials, configuration, deployment, capture and recovery. Use those instructions with this existing `VALUES`, not replacement example files. For Paperless OIDC, follow its **Optional: compose with independently released Keycloak** section through native client registration and retained client-secret retrieval, then configuration rendering. Keycloak administration credentials are preparation-only, never Paperless runtime or backup credentials. Do not replace restored Paperless secret keys, OIDC client secrets or repository encryption keys.
+The current [Keycloak operating procedure](https://github.com/bartlapp/bartl-keycloak/blob/main/README.md) and [Paperless operating procedure](https://github.com/bartlapp/bartl-paperless/blob/main/README.md) own storage, retained native credentials, deployment, capture and reconstruction for their selected immutable releases. This composition uses Keycloak 0.6.1 and Paperless 0.2.0. Select their deployments against this existing `VALUES`; do not repeat older tagged README working-directory or file-creation examples. For Paperless OIDC, follow **Optional: compose with independently released Keycloak** through native client registration, retained client-secret retrieval and configuration rendering. Provider-administration credentials are preparation-only, never consumer runtime or backup credentials. Never replace restored Paperless keys, OIDC secrets or repository keys.
 
 Acquire the independently released consumer charts:
 
 ```bash
-helm pull oci://ghcr.io/bartlapp/bartl-keycloak --version 0.6.1
-printf '%s  bartl-keycloak-0.6.1.tgz\n' \
-  7abb55bcefbcde70dc8f29309d508d314a48783547067b529d48617d23c9225a |
-  shasum -a 256 --check -
-KC_CHART="$PWD/bartl-keycloak-0.6.1.tgz"
-helm pull oci://ghcr.io/bartlapp/bartl-paperless --version 0.2.0
-printf '%s  bartl-paperless-0.2.0.tgz\n' \
-  4c6df6106efb35b2c4a25e4bb77d7ad98765572154dbcd380a9742f20bfac5c9 |
-  shasum -a 256 --check -
-PL_CHART="$PWD/bartl-paperless-0.2.0.tgz"
-KC_CTX="$CTX" # Select the actual application-cluster context, if different.
-PL_CTX="$KC_CTX"
-KC_NS=keycloak-blue
-PL_NS=paperless-blue
+KC_DEPLOYMENT=${KC_DEPLOYMENT:-keycloak}
+PL_DEPLOYMENT=${PL_DEPLOYMENT:-paperless}
+KC_DEPLOYMENT="$KC_DEPLOYMENT" PL_DEPLOYMENT="$PL_DEPLOYMENT" CLUSTER="$CLUSTER" yq -i '
+  .packages.keycloak = (.packages.keycloak // {"version": "0.6.1", "chart": "oci://ghcr.io/bartlapp/bartl-keycloak",
+    "chartSha256": "7abb55bcefbcde70dc8f29309d508d314a48783547067b529d48617d23c9225a"}) |
+  .packages.paperless = (.packages.paperless // {"version": "0.2.0", "chart": "oci://ghcr.io/bartlapp/bartl-paperless",
+    "chartSha256": "4c6df6106efb35b2c4a25e4bb77d7ad98765572154dbcd380a9742f20bfac5c9"}) |
+  .deployments[strenv(KC_DEPLOYMENT)] = (.deployments[strenv(KC_DEPLOYMENT)] // {
+    "instance": "keycloak", "cluster": strenv(CLUSTER), "namespace": "keycloak-blue",
+    "release": "keycloak", "package": "keycloak"}) |
+  .deployments[strenv(PL_DEPLOYMENT)] = (.deployments[strenv(PL_DEPLOYMENT)] // {
+    "instance": "paperless", "cluster": strenv(CLUSTER), "namespace": "paperless-blue",
+    "release": "paperless", "package": "paperless"})
+' "$VALUES"
+KC_CLUSTER=$(DEPLOYMENT="$KC_DEPLOYMENT" yq -er '.deployments[strenv(DEPLOYMENT)].cluster' "$VALUES")
+PL_CLUSTER=$(DEPLOYMENT="$PL_DEPLOYMENT" yq -er '.deployments[strenv(DEPLOYMENT)].cluster' "$VALUES")
+KC_CTX=$(CLUSTER="$KC_CLUSTER" yq -er '.clusters[strenv(CLUSTER)].kubeconfig.context' "$VALUES")
+PL_CTX=$(CLUSTER="$PL_CLUSTER" yq -er '.clusters[strenv(CLUSTER)].kubeconfig.context' "$VALUES")
+KC_NS=$(DEPLOYMENT="$KC_DEPLOYMENT" yq -er '.deployments[strenv(DEPLOYMENT)].namespace' "$VALUES")
+PL_NS=$(DEPLOYMENT="$PL_DEPLOYMENT" yq -er '.deployments[strenv(DEPLOYMENT)].namespace' "$VALUES")
+DEPLOYMENT="$KC_DEPLOYMENT" yq -e '.deployments[strenv(DEPLOYMENT)].instance == "keycloak" and .deployments[strenv(DEPLOYMENT)].release == "keycloak"' "$VALUES" >/dev/null
+DEPLOYMENT="$PL_DEPLOYMENT" yq -e '.deployments[strenv(DEPLOYMENT)].instance == "paperless" and .deployments[strenv(DEPLOYMENT)].release == "paperless"' "$VALUES" >/dev/null
+KC_PACKAGE=$(DEPLOYMENT="$KC_DEPLOYMENT" yq -er '.deployments[strenv(DEPLOYMENT)].package' "$VALUES")
+PL_PACKAGE=$(DEPLOYMENT="$PL_DEPLOYMENT" yq -er '.deployments[strenv(DEPLOYMENT)].package' "$VALUES")
+KC_VERSION=$(PACKAGE="$KC_PACKAGE" yq -er '.packages[strenv(PACKAGE)].version' "$VALUES")
+PL_VERSION=$(PACKAGE="$PL_PACKAGE" yq -er '.packages[strenv(PACKAGE)].version' "$VALUES")
+test "$KC_VERSION" = 0.6.1 # This composition qualifies these explicit releases.
+test "$PL_VERSION" = 0.2.0
+KC_CHART_REF=$(PACKAGE="$KC_PACKAGE" yq -er '.packages[strenv(PACKAGE)].chart' "$VALUES")
+PL_CHART_REF=$(PACKAGE="$PL_PACKAGE" yq -er '.packages[strenv(PACKAGE)].chart' "$VALUES")
+KC_CHART="$WORK_DIR/packages/bartl-keycloak-$KC_VERSION.tgz"
+PL_CHART="$WORK_DIR/packages/bartl-paperless-$PL_VERSION.tgz"
+if [ ! -f "$KC_CHART" ]; then helm pull "$KC_CHART_REF" --version "$KC_VERSION" --destination "$WORK_DIR/packages"; fi
+if [ ! -f "$PL_CHART" ]; then helm pull "$PL_CHART_REF" --version "$PL_VERSION" --destination "$WORK_DIR/packages"; fi
+KC_SHA=$(PACKAGE="$KC_PACKAGE" yq -er '.packages[strenv(PACKAGE)].chartSha256' "$VALUES")
+PL_SHA=$(PACKAGE="$PL_PACKAGE" yq -er '.packages[strenv(PACKAGE)].chartSha256' "$VALUES")
+printf '%s  %s\n' "$KC_SHA" "$KC_CHART" "$PL_SHA" "$PL_CHART" | shasum -a 256 --check -
+KC_DIR="$WORK_DIR/clusters/$KC_CLUSTER/applications/keycloak"
+PL_DIR="$WORK_DIR/clusters/$PL_CLUSTER/applications/paperless"
+if [ "$KC_DEPLOYMENT" != keycloak ]; then KC_DIR="$KC_DIR/deployments/$KC_DEPLOYMENT"; fi
+if [ "$PL_DEPLOYMENT" != paperless ]; then PL_DIR="$PL_DIR/deployments/$PL_DEPLOYMENT"; fi
+mkdir -p "$KC_DIR" "$PL_DIR"
+if [ -z "${KC_ACCESS_CLUSTER:-}" ]; then
+  KC_ACCESS_CLUSTER="$KC_CLUSTER"; KC_ACCESS_FILE=${KC_KUBECONFIG:-}
+  if [ "$KC_CLUSTER" = "$CLUSTER" ] && [ -z "$KC_ACCESS_FILE" ]; then KC_ACCESS_FILE="$KUBECONFIG"; fi
+fi
+if [ -z "${PL_ACCESS_CLUSTER:-}" ]; then
+  PL_ACCESS_CLUSTER="$PL_CLUSTER"; PL_ACCESS_FILE=${PL_KUBECONFIG:-}
+  if [ "$PL_CLUSTER" = "$CLUSTER" ] && [ -z "$PL_ACCESS_FILE" ]; then PL_ACCESS_FILE="$KUBECONFIG"; fi
+fi
+KC_KUBECONFIG="$WORK_DIR/clusters/$KC_CLUSTER/base/kubeconfig"
+PL_KUBECONFIG="$WORK_DIR/clusters/$PL_CLUSTER/base/kubeconfig"
+if [ "$KC_CLUSTER" = "$KC_ACCESS_CLUSTER" ] && [ -n "$KC_ACCESS_FILE" ]; then KC_KUBECONFIG="$KC_ACCESS_FILE"; fi
+if [ "$PL_CLUSTER" = "$PL_ACCESS_CLUSTER" ] && [ -n "$PL_ACCESS_FILE" ]; then PL_KUBECONFIG="$PL_ACCESS_FILE"; fi
+kubectl --kubeconfig "$KC_KUBECONFIG" --context "$KC_CTX" config view --minify >/dev/null
+kubectl --kubeconfig "$PL_KUBECONFIG" --context "$PL_CTX" config view --minify >/dev/null
+KC_INGRESS=$(DEPLOYMENT="$KC_DEPLOYMENT" yq -r '.operations.deployments[strenv(DEPLOYMENT)].ingressEnabled | select(. != null)' "$VALUES")
+PL_INGRESS=$(DEPLOYMENT="$PL_DEPLOYMENT" yq -r '.operations.deployments[strenv(DEPLOYMENT)].ingressEnabled | select(. != null)' "$VALUES")
+KC_INGRESS_ARGS=()
+PL_INGRESS_ARGS=()
+if [ -n "$KC_INGRESS" ]; then KC_INGRESS_ARGS+=(--set "services.keycloak.ingress.enabled=$KC_INGRESS"); fi
+if [ -n "$PL_INGRESS" ]; then PL_INGRESS_ARGS+=(--set "services.paperless.ingress.enabled=$PL_INGRESS"); fi
 ```
 
 For this fresh example, use the following service choices in the same file, preserving `installation`, `dns` and any other existing inputs. An already-populated endpoint keeps **all** its declarations: append these repositories instead of replacing its list. Lists replace as a whole.
@@ -346,16 +434,19 @@ Render all three public declarations before installing the applications:
 
 ```bash
 helm template backup "$CHART" -n "$NS" -f "$VALUES" \
-  --set-string instance="$INSTANCE" --set-string renderMode=connections \
+  --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" "${HELM_ARGS[@]}" --set-string renderMode=connections \
   --show-only templates/connections.yaml > "$INSTALL_DIR/restic-connections.yaml"
 helm template keycloak "$KC_CHART" -n "$KC_NS" -f "$VALUES" \
-  --set-string instance=keycloak --set-string renderMode=connections \
-  --show-only templates/connections.yaml > "$INSTALL_DIR/keycloak-connections.yaml"
+  --set-string instance=keycloak --set-string services.keycloak.release=0.6.1 "${KC_INGRESS_ARGS[@]}" --set-string renderMode=connections \
+  --show-only templates/connections.yaml > "$KC_DIR/keycloak-connections.yaml"
 helm template paperless "$PL_CHART" -n "$PL_NS" -f "$VALUES" \
-  --set-string instance=paperless --set-string renderMode=connections \
-  --show-only templates/connections.yaml > "$INSTALL_DIR/paperless-connections.yaml"
+  --set-string instance=paperless --set-string services.paperless.release=0.2.0 "${PL_INGRESS_ARGS[@]}" --set-string renderMode=connections \
+  --show-only templates/connections.yaml > "$PL_DIR/paperless-connections.yaml"
 for consumer in keycloak paperless; do
-  declaration="$INSTALL_DIR/$consumer-connections.yaml"
+  case "$consumer" in
+    keycloak) declaration="$KC_DIR/keycloak-connections.yaml" ;;
+    paperless) declaration="$PL_DIR/paperless-connections.yaml" ;;
+  esac
   CONSUMER="$consumer" INSTANCE="$INSTANCE" yq -e '
     .backup.requests[strenv(CONSUMER)].enabled == true and
     .backup.requests[strenv(CONSUMER)].endpoint == strenv(INSTANCE)
@@ -381,32 +472,32 @@ Run the fresh-only protected-input preparation above for the new repositories (o
 ```bash
 for consumer in keycloak paperless; do
   case "$consumer" in
-    keycloak) consumer_ctx="$KC_CTX"; consumer_ns="$KC_NS" ;;
-    paperless) consumer_ctx="$PL_CTX"; consumer_ns="$PL_NS" ;;
+    keycloak) consumer_kubeconfig="$KC_KUBECONFIG"; consumer_ctx="$KC_CTX"; consumer_ns="$KC_NS"; declaration="$KC_DIR/keycloak-connections.yaml" ;;
+    paperless) consumer_kubeconfig="$PL_KUBECONFIG"; consumer_ctx="$PL_CTX"; consumer_ns="$PL_NS"; declaration="$PL_DIR/paperless-connections.yaml" ;;
   esac
-  kubectl --context "$consumer_ctx" create namespace "$consumer_ns" --dry-run=client -o yaml |
-    kubectl --context "$consumer_ctx" apply -f -
+  kubectl --kubeconfig "$consumer_kubeconfig" --context "$consumer_ctx" create namespace "$consumer_ns" --dry-run=client -o yaml |
+    kubectl --kubeconfig "$consumer_kubeconfig" --context "$consumer_ctx" apply -f -
   directory="$INSTALL_DIR/protected/repositories/$consumer"
   for role in reader writer; do
     binding=backupReader
     [ "$role" != writer ] || binding=backupWriter
     secret=$(CONSUMER="$consumer" BINDING="$binding" yq -er \
       '.credentials.bindings[strenv(CONSUMER)][strenv(BINDING)].secretName' \
-      "$INSTALL_DIR/$consumer-connections.yaml")
+      "$declaration")
     printf '%s' "$role" > "$directory/$role.username"
-    kubectl --context "$consumer_ctx" -n "$consumer_ns" create secret generic "$secret" \
+    kubectl --kubeconfig "$consumer_kubeconfig" --context "$consumer_ctx" -n "$consumer_ns" create secret generic "$secret" \
       --from-file=username="$directory/$role.username" \
       --from-file=restPassword="$directory/$role.restPassword" \
       --from-file=password="$directory/password" \
       --from-file=ca.crt="$INSTALL_DIR/protected/ca.crt" --dry-run=client -o yaml |
-      kubectl --context "$consumer_ctx" apply --server-side --field-manager=restic-preparation -f -
+      kubectl --kubeconfig "$consumer_kubeconfig" --context "$consumer_ctx" apply --server-side --field-manager=restic-preparation -f -
   done
 done
 ```
 
 The two roles share only their own repository encryption key; every repository and transport role has its own password. No consumer receives `htpasswd`, another repository's key, endpoint-admin credentials or a replication destination credential. Retain the protected directories independently before relying on captures.
 
-Finish the exact-version application procedures with `CHART="$KC_CHART"`, `CTX="$KC_CTX"`, `NS="$KC_NS"`, `INSTANCE=keycloak` for Keycloak, and correspondingly `PL_CHART`/`PL_CTX`/`PL_NS`/`paperless` for Paperless, always using this same `VALUES`. Those assignments are for the application terminals; retain this terminal's Restic variables for endpoint operations. They are independent `helm upgrade --install keycloak ...` and `helm upgrade --install paperless ...` releases, not dependencies deployed by Restic. Trigger each package's native backup, inspect its own publication result, and verify recovery through that package's independent-target procedure. Configure schedules, secondary replication and retention separately against the accepted failure boundary; installing three charts alone is not evidence of provider-loss recovery.
+Finish each package procedure in its own terminal with exported `WORK_DIR`, the same absolute `VALUES` and `DEPLOYMENT="$KC_DEPLOYMENT"` or `DEPLOYMENT="$PL_DEPLOYMENT"`. Run that package's retained mapping block to derive its chart, context, namespace and instance; do not execute an example that creates a second file or chooses a current context. Keep this terminal's Restic variables for endpoint operations. Independent package releases own capture and reconstruction; trigger each native backup, inspect its publication result and verify independent-target recovery. Configure schedules, secondary replication and retention against the accepted failure boundary. A declared repository is not protection evidence.
 
 ### Migrate flat 0.2.1 inputs to 0.3.0
 
@@ -414,30 +505,36 @@ Retain the old chart, flat values, repository identities and credential files be
 
 Create the shared file with `installation`, `dns.root` (or explicit hostname), and `services.restic`. Move old `application.replicas` to `services.restic.replicas`; move `existingClaim`, `tlsSecret`, `repositories`, `replication` and `maintenance` unchanged under that service. Preserve every explicit repository `authSecret` and `passwordSecret`, including the old example's `repository-key`. Set `release: "0.3.0"`. Set `tls.managed: false` for existing external TLS; set `ingress.enabled: false` while retaining an existing external route, or deliberately configure the new passthrough route. Retire old image overrides and use the new chart's pinned image.
 
-Render public declarations, compare repository URLs and Secret/claim bindings with the retained installation inputs, and apply the selected CRD as above. Upgrade with `helm upgrade backup "$CHART" --kube-context "$CTX" -n "$NS" --reset-values -f "$VALUES" --set-string instance="$INSTANCE" --wait=legacy --timeout=5m`. Require current-generation Ready, unchanged repository identity/history, an older-point restore and a new backup before declaring the transition usable. Do not run another controller against the claim or treat failed native admission as permission to initialize it.
+Render public declarations, compare repository URLs and Secret/claim bindings with the retained installation inputs, and apply the selected CRD as above. Upgrade with `helm upgrade backup "$CHART" --kubeconfig "$KUBECONFIG" --kube-context "$CTX" -n "$NS" --reset-values -f "$VALUES" --set-string instance="$INSTANCE" --wait=legacy --timeout=5m`. Require current-generation Ready, unchanged repository identity/history, an older-point restore and a new backup before declaring the transition usable. Do not run another controller against the claim or treat failed native admission as permission to initialize it.
 
 ### Durable stop and replacement
 
 Set run/stop intent through Helm, not by scaling generated Deployments:
 
 ```sh
-helm upgrade backup "$CHART" --kube-context "$CTX" -n "$NS" -f "$VALUES" \
-  --set-string instance="$INSTANCE" --set "services.$INSTANCE.replicas=0"
-kubectl --context "$CTX" -n "$NS" wait --for=condition=Stopped resticapplication/backup-restic --timeout=5m
-kubectl --context "$CTX" -n "$NS" get resticapplication backup-restic -o json
-kubectl --context "$CTX" -n "$NS" get pods,jobs,cronjobs
+DEPLOYMENT="$DEPLOYMENT" yq -i '.operations.deployments[strenv(DEPLOYMENT)].replicas = 0' "$VALUES"
+REPLICAS=$(DEPLOYMENT="$DEPLOYMENT" yq -er '.operations.deployments[strenv(DEPLOYMENT)].replicas' "$VALUES")
+helm upgrade "$RELEASE" "$CHART" --kubeconfig "$KUBECONFIG" --kube-context "$CTX" -n "$NS" -f "$VALUES" \
+  --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
+  --set "services.$HELM_INSTANCE.replicas=$REPLICAS" "${HELM_ARGS[@]}" --wait=legacy --timeout=5m
+kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" wait --for=condition=Stopped resticapplication/backup-restic --timeout=5m
+kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" get resticapplication backup-restic -o json
+kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" get pods,jobs,cronjobs
 ```
 
-To resume this installation, retain `services.restic.replicas: 1` in its shared values and use the same package:
+To resume this deployment, retain its run intent and use the same package:
 
 ```sh
-helm upgrade backup "$CHART" --kube-context "$CTX" -n "$NS" -f "$VALUES" \
-  --set-string instance="$INSTANCE" --set "services.$INSTANCE.replicas=1"
-kubectl --context "$CTX" -n "$NS" wait --for=condition=Ready resticapplication/backup-restic --timeout=30m
-kubectl --context "$CTX" -n "$NS" get resticapplication backup-restic -o json
+DEPLOYMENT="$DEPLOYMENT" yq -i '.operations.deployments[strenv(DEPLOYMENT)].replicas = 1' "$VALUES"
+REPLICAS=$(DEPLOYMENT="$DEPLOYMENT" yq -er '.operations.deployments[strenv(DEPLOYMENT)].replicas' "$VALUES")
+helm upgrade "$RELEASE" "$CHART" --kubeconfig "$KUBECONFIG" --kube-context "$CTX" -n "$NS" -f "$VALUES" \
+  --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
+  --set "services.$HELM_INSTANCE.replicas=$REPLICAS" "${HELM_ARGS[@]}" --wait=legacy --timeout=5m
+kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" wait --for=condition=Ready resticapplication/backup-restic --timeout=30m
+kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" get resticapplication backup-restic -o json
 ```
 
-Retain `services.restic.replicas: 0` in the old installation's retained values. The controller withdraws serving, suspends new copy admission, scales the endpoint down and gracefully terminates running lifecycle/copy work. Every endpoint process requires fresh successful application and live-PVC admission before nginx starts. An observed stop, revoked ownership, changed identity, deletion or withdrawn successful admission terminates serving through SIGQUIT. Lifecycle and replication workers retain their fail-closed observation policy and receive SIGINT on cancellation. A bounded kill is a last resort after cancellation, not an expiry of serving permission.
+Retain `operations.deployments.<source>.replicas: 0` in the same installation file. The controller withdraws serving, suspends new copy admission, scales the endpoint down and gracefully terminates running lifecycle/copy work. Every endpoint process requires fresh successful application and live-PVC admission before nginx starts. An observed stop, revoked ownership, changed identity, deletion or withdrawn successful admission terminates serving through SIGQUIT. Lifecycle and replication workers retain their fail-closed observation policy and receive SIGINT on cancellation. A bounded kill is a last resort after cancellation, not an expiry of serving permission.
 
 An already-admitted endpoint continues backups and restores when API observation is unavailable. It reports the failure and keeps checking without changing readiness solely for that failure. A confirmed negative from either the application or bound PVC wins over an unavailable check of the other. The controller leaves the established endpoint and configuration unchanged without claiming fresh verification. A replacement process needs fresh admission; it cannot inherit permission during an outage.
 
@@ -445,7 +542,7 @@ An API partition can therefore leave the endpoint serving indefinitely unless an
 
 A completed stop invalidates successful native admission. The next start observes and checks the retained repositories again; ordinary controller or process restarts while running do not reinitialize them. Failed operations remain failed across stop/start. A rejected installation that never acquired the claim can stop or be deleted without stopping its rightful owner.
 
-For a planned replacement, first obtain current-generation `Stopped=True`, confirm there are no active endpoint/lifecycle/copy Pods and preserve that stop intent. If final primary-only history must be preserved, let replication finish and verify the secondary before stopping. Install the replacement with a fresh claim, the retained configuration/credentials and the surviving secondary as recovery source. After automatic reconstruction and `Ready=True`, verify an older recovery point, a new backup and access protection, then switch the service route. Keep the old installation stopped or retire it; do not reapply its old running values.
+For a planned replacement, first obtain current-generation `Stopped=True`, confirm no active endpoint/lifecycle/copy Pods and preserve source stop intent. If final primary-only history must survive, finish and verify secondary replication before stopping. Add `deployments.restic-replacement` with the **same instance**, retained package key, target cluster, fresh namespace and release `backup`. Record target `replicas: 1` and `ingressEnabled: false` under `operations.deployments.restic-replacement`; select `DEPLOYMENT=restic-replacement`, rerun mapping and optional Helm-argument blocks and prepare a fresh claim, retained credentials and surviving secondary recovery configuration. The mapping derives a separate deployment subdirectory whenever deployment ID differs from instance. Never copy `VALUES`. Run the ordinary deployment command; after automatic reconstruction and current-generation Ready, verify older-point restore, new backup and access protection. Record target `ingressEnabled: true`, refresh Helm arguments, redeploy, then perform the authorized route switch. Keep the source deployment stopped; target start must never overwrite source stop intent.
 
 For destroyed infrastructure, establish that the old primary can no longer serve or replicate before activating its replacement. An unreachable primary is not proof of retirement. This package does not invent cross-cluster fencing: if the old primary might still be active and its authority cannot independently be withdrawn, do not activate a replacement. Changing DNS alone is insufficient. Claim ownership prevents competing controllers from adopting the same PVC inside the supported cluster; it does not fence another provider.
 
@@ -462,16 +559,16 @@ For a historical 0.2.0 installation, upgrade to 0.2.1 before deleting its applic
 ```sh
 (
   set -eu
-  helm upgrade backup "$OLD_CHART" -n backup -f endpoint-values.yaml \
+  helm upgrade backup "$OLD_CHART" --kubeconfig "$KUBECONFIG" --kube-context "$CTX" -n backup -f endpoint-values.yaml \
     --set application.replicas=1 --wait=legacy --timeout=5m
-  kubectl -n backup rollout status deployment/backup-restic-controller --timeout=3m
-  GENERATION=$(kubectl -n backup get resticapplication backup-restic \
+  kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n backup rollout status deployment/backup-restic-controller --timeout=3m
+  GENERATION=$(kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n backup get resticapplication backup-restic \
     -o jsonpath='{.metadata.generation}')
-  kubectl -n backup wait resticapplication/backup-restic \
+  kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n backup wait resticapplication/backup-restic \
     --for=jsonpath='{.status.observedGeneration}'="$GENERATION" --timeout=30m
-  kubectl -n backup wait resticapplication/backup-restic \
+  kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n backup wait resticapplication/backup-restic \
     --for=condition=Ready --timeout=30m
-  APPLICATION=$(kubectl -n backup get resticapplication backup-restic -o json)
+  APPLICATION=$(kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n backup get resticapplication backup-restic -o json)
   printf '%s\n' "$APPLICATION" | jq -e --arg image "$OLD_IMAGE" '
     .metadata.generation as $generation |
     .spec.image == $image and .spec.replicas == 1 and
@@ -488,20 +585,23 @@ Confirm repository identity and retained history and restore an old point. For c
 
 ### Supported uninstall
 
-Stop and confirm current-generation drainage, delete the `ResticApplication` while its controller is running, then uninstall Helm. Keep `services.restic.replicas: 0` in `"$VALUES"` and prevent other operators or reconcilers from restoring running intent. Do not delete the namespace/controller first or bypass finalizers. Export needed logs before stopping:
+Stop and confirm current-generation drainage, delete the `ResticApplication` while its controller is running, then uninstall Helm. Keep `operations.deployments.<deployment>.replicas: 0` in `"$VALUES"` and prevent other operators or reconcilers from restoring running intent. Do not delete the namespace/controller first or bypass finalizers. Export needed logs before stopping:
 
 ```sh
 (
   set -eu
-  helm upgrade backup "$CHART" --kube-context "$CTX" -n "$NS" -f "$VALUES" \
-    --set-string instance="$INSTANCE" --set "services.$INSTANCE.replicas=0"
-  GENERATION=$(kubectl --context "$CTX" -n "$NS" get resticapplication backup-restic \
+  DEPLOYMENT="$DEPLOYMENT" yq -i '.operations.deployments[strenv(DEPLOYMENT)].replicas = 0' "$VALUES"
+  REPLICAS=$(DEPLOYMENT="$DEPLOYMENT" yq -er '.operations.deployments[strenv(DEPLOYMENT)].replicas' "$VALUES")
+  helm upgrade "$RELEASE" "$CHART" --kubeconfig "$KUBECONFIG" --kube-context "$CTX" -n "$NS" -f "$VALUES" \
+    --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
+    --set "services.$HELM_INSTANCE.replicas=$REPLICAS" "${HELM_ARGS[@]}" --wait=legacy --timeout=5m
+  GENERATION=$(kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" get resticapplication backup-restic \
     -o jsonpath='{.metadata.generation}')
-  kubectl --context "$CTX" -n "$NS" wait resticapplication/backup-restic \
+  kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" wait resticapplication/backup-restic \
     --for=jsonpath='{.status.observedGeneration}'="$GENERATION" --timeout=5m
-  kubectl --context "$CTX" -n "$NS" wait resticapplication/backup-restic \
+  kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" wait resticapplication/backup-restic \
     --for=condition=Stopped --timeout=5m
-  APPLICATION=$(kubectl --context "$CTX" -n "$NS" get resticapplication backup-restic -o json)
+  APPLICATION=$(kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" get resticapplication backup-restic -o json)
   printf '%s\n' "$APPLICATION" | jq -e '
       .metadata.generation as $generation |
       .spec.replicas == 0 and
@@ -512,12 +612,12 @@ Stop and confirm current-generation drainage, delete the `ResticApplication` whi
         .observedGeneration == $generation)
     ' >/dev/null
 
-  kubectl --context "$CTX" -n "$NS" delete resticapplication backup-restic \
+  kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" delete resticapplication backup-restic \
     --wait=true --timeout=3m
-  helm uninstall backup --kube-context "$CTX" -n "$NS" --wait --timeout=3m
+  helm uninstall backup --kubeconfig "$KUBECONFIG" --kube-context "$CTX" -n "$NS" --wait --timeout=3m
 
-  kubectl --context "$CTX" -n "$NS" get pvc "$CLAIM"
-  kubectl --context "$CTX" -n "$NS" get secrets
+  kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" get pvc "$CLAIM"
+  kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" get secrets
 )
 ```
 
@@ -525,13 +625,16 @@ The subshell stops on any failed check or timeout. Keep the controller running a
 
 The operator-owned PVC, repository data, Secrets and shared CRD survive uninstall. From 0.2.1 onward, deletion confirms drainage again and conditionally releases only this application's claim binding; ordinary stop retains ownership and the finalizer. Unavailable observations or conflicting writes leave removal incomplete. Failed/interrupted work keeps the claim fenced; uninstall clears neither failure markers nor native locks.
 
-After successful finalization and Helm uninstall, retain `services.restic.replicas: 1` in the values and reinstall 0.3.0 with the same PVC, configuration and Secrets:
+After successful finalization and Helm uninstall, retain deployment-local run intent and reinstall the selected package with the same PVC, configuration and Secrets:
 
 ```sh
-helm upgrade --install backup "$CHART" --kube-context "$CTX" -n "$NS" -f "$VALUES" \
-  --set-string instance="$INSTANCE" --set "services.$INSTANCE.replicas=1" --wait=legacy --timeout=5m
-kubectl --context "$CTX" -n "$NS" wait --for=condition=Ready resticapplication/backup-restic --timeout=30m
-kubectl --context "$CTX" -n "$NS" get resticapplication backup-restic -o json
+DEPLOYMENT="$DEPLOYMENT" yq -i '.operations.deployments[strenv(DEPLOYMENT)].replicas = 1' "$VALUES"
+REPLICAS=$(DEPLOYMENT="$DEPLOYMENT" yq -er '.operations.deployments[strenv(DEPLOYMENT)].replicas' "$VALUES")
+helm upgrade --install "$RELEASE" "$CHART" --kubeconfig "$KUBECONFIG" --kube-context "$CTX" -n "$NS" -f "$VALUES" \
+  --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
+  --set "services.$HELM_INSTANCE.replicas=$REPLICAS" "${HELM_ARGS[@]}" --wait=legacy --timeout=5m
+kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" wait --for=condition=Ready resticapplication/backup-restic --timeout=30m
+kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" get resticapplication backup-restic -o json
 ```
 
 The new application acquires ownership and performs fresh native admission of the existing repositories. Require current-generation Ready, verify repository identity and retained history, restore an old point and verify a new backup.
@@ -564,7 +667,7 @@ The source must name a declared local repository. Destination hosts are credenti
 The source `records-repository-key` already supplies the local password. Create the destination Secret in the primary endpoint's namespace from independently protected files, not plaintext Helm values:
 
 ```sh
-kubectl --context "$CTX" -n "$NS" create secret generic records-replication-destination \
+kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" create secret generic records-replication-destination \
   --from-file=username=/protected/secondary/username \
   --from-file=restPassword=/protected/secondary/writer.restPassword \
   --from-file=password=/protected/secondary/password \
@@ -584,9 +687,9 @@ Each copy Job retains immutable configuration for its initiating application gen
 Replication has its own Job status and logs, separate from application backup results:
 
 ```sh
-kubectl -n backup get cronjobs,jobs -l bartl-restic/replication=secondary
-kubectl -n backup describe cronjob backup-restic-copy-secondary
-kubectl -n backup logs job/SELECTED_REPLICATION_JOB
+kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" get cronjobs,jobs -l bartl-restic/replication=secondary
+kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" describe cronjob backup-restic-copy-secondary
+kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" logs job/SELECTED_REPLICATION_JOB
 ```
 
 Three successful and three failed Jobs are retained per destination. Export Job results and logs if longer history or alerting is required. Monitor failed or overdue Jobs and the newest usable secondary snapshot's capture time, not just `lastSuccessfulTime`: a successful no-op copy does not prove a recent application backup. A copy Job completing means native copying succeeded; it does not substitute for a secondary `check --read-data` and a restore qualification. Missing Secrets, unavailable endpoints, wrong credentials and conflicting maintenance locks remain visible as failed or blocked work rather than changing primary backup success.
@@ -600,20 +703,20 @@ The optional Job accepts only `check` (full `check --read-data`) or `forget-prun
 ```sh
 # Generate only the Job from the same endpoint values.
 helm template backup "$CHART" -n "$NS" -f "$VALUES" \
-  --set-string instance="$INSTANCE" \
-  --set "services.$INSTANCE.maintenance.enabled=true" \
-  --set "services.$INSTANCE.maintenance.name=check-20261117" \
-  --set "services.$INSTANCE.maintenance.repository=records" \
-  --set "services.$INSTANCE.maintenance.action=check" \
-  --set-string "services.$INSTANCE.maintenance.host=$RESTIC_HOST" \
-  --set "services.$INSTANCE.maintenance.credentialsSecret=records-repository-admin" \
+  --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" "${HELM_ARGS[@]}" \
+  --set "services.$HELM_INSTANCE.maintenance.enabled=true" \
+  --set "services.$HELM_INSTANCE.maintenance.name=check-20261117" \
+  --set "services.$HELM_INSTANCE.maintenance.repository=records" \
+  --set "services.$HELM_INSTANCE.maintenance.action=check" \
+  --set-string "services.$HELM_INSTANCE.maintenance.host=$RESTIC_HOST" \
+  --set "services.$HELM_INSTANCE.maintenance.credentialsSecret=records-repository-admin" \
   --show-only templates/maintenance.yaml |
-  kubectl --context "$CTX" -n "$NS" apply -f -
-kubectl --context "$CTX" -n "$NS" wait --for=condition=complete job/backup-restic-check-20261117 --timeout=30m
-kubectl --context "$CTX" -n "$NS" logs job/backup-restic-check-20261117
+  kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" apply -f -
+kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" wait --for=condition=complete job/backup-restic-check-20261117 --timeout=30m
+kubectl --kubeconfig "$KUBECONFIG" --context "$CTX" -n "$NS" logs job/backup-restic-check-20261117
 ```
 
-The host must be covered by the certificate and reachable from the Job; admin credentials must include its validating `ca.crt`. For deletion, replace `services.$INSTANCE.maintenance.action=check` with `services.$INSTANCE.maintenance.action=forget-prune`, add `--set-string "services.$INSTANCE.maintenance.snapshot=$FULL_SNAPSHOT_ID"` and choose a fresh name. Retain the Job/logs as the operation result; inspect failed Jobs rather than retrying blindly. Stale locks require an operator to establish that the owning operation has ended before using native Restic unlock separately.
+The host must be covered by the certificate and reachable from the Job; admin credentials must include its validating `ca.crt`. For deletion, replace `services.$HELM_INSTANCE.maintenance.action=check` with `services.$HELM_INSTANCE.maintenance.action=forget-prune`, add `--set-string "services.$HELM_INSTANCE.maintenance.snapshot=$FULL_SNAPSHOT_ID"` and choose a fresh name. Retain the Job/logs as the operation result; inspect failed Jobs rather than retrying blindly. Stale locks require an operator to establish that the owning operation has ended before using native Restic unlock separately.
 
 ## Qualification and test output
 
