@@ -74,10 +74,11 @@ set -euo pipefail
 umask 077
 CUSTOMER=${CUSTOMER:-acme}
 INSTALLATION_ID=${INSTALLATION_ID:-$CUSTOMER}
-WORK_DIR=${WORK_DIR:-"$HOME/bartl/$INSTALLATION_ID"}
+WORK_DIR_ROOT=${WORK_DIR_ROOT:-"$HOME/bartl"}
+WORK_DIR=${WORK_DIR:-"$WORK_DIR_ROOT/$CUSTOMER/${INSTALLATION_ID}-installation"}
 mkdir -p "$WORK_DIR"
 WORK_DIR=$(cd "$WORK_DIR" && pwd -P)
-export WORK_DIR VALUES="${VALUES:-$WORK_DIR/installation.yaml}"
+export WORK_DIR VALUES="$WORK_DIR/installation.yaml"
 case "$VALUES" in /*) ;; *) printf 'VALUES must be absolute\n' >&2; exit 1 ;; esac
 mkdir -p "$WORK_DIR/packages"
 IMAGE=ghcr.io/bartlapp/bartl-restic-controller@sha256:f174793e5c622d7eb1d4ae384ac358ec804dae735ddafe2243d710c48b7b8fb3
