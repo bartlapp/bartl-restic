@@ -105,7 +105,7 @@ if [ ! -e "$VALUES" ]; then
 fi
 yq -e '.schemaVersion == 1 and (.customer != null) and (.installation != null)' "$VALUES" >/dev/null
 DEPLOYMENT=${DEPLOYMENT:-restic}
-CLUSTER=${CLUSTER:-blue}
+CLUSTER=${CLUSTER:-cluster-1}
 DEPLOYMENT="$DEPLOYMENT" CLUSTER="$CLUSTER" yq -i '
   .deployments[strenv(DEPLOYMENT)] = ({
     "instance": "restic", "cluster": strenv(CLUSTER), "namespace": "backup",
