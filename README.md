@@ -72,8 +72,8 @@ Use the [operator workstation](https://github.com/bartlapp/bartl-app/blob/main/d
 ```bash
 set -euo pipefail
 umask 077
-INSTALLATION_ID=${INSTALLATION_ID:-acme}
 CUSTOMER=${CUSTOMER:-acme}
+INSTALLATION_ID=${INSTALLATION_ID:-$CUSTOMER}
 WORK_DIR=${WORK_DIR:-"$HOME/bartl/$INSTALLATION_ID"}
 mkdir -p "$WORK_DIR"
 WORK_DIR=$(cd "$WORK_DIR" && pwd -P)
