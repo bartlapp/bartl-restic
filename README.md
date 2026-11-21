@@ -73,6 +73,7 @@ Use the [operator workstation](https://github.com/bartlapp/bartl-app/blob/main/d
 set -euo pipefail
 umask 077
 INSTALLATION_ID=${INSTALLATION_ID:-acme}
+CUSTOMER=${CUSTOMER:-acme}
 WORK_DIR=${WORK_DIR:-"$HOME/bartl/$INSTALLATION_ID"}
 mkdir -p "$WORK_DIR"
 WORK_DIR=$(cd "$WORK_DIR" && pwd -P)
@@ -98,25 +99,32 @@ Its archive SHA-256 is `94293548ac5fd0a86976e4af0e678596a53c8d0144dad1983810cea6
 The cluster needs amd64 nodes, registry egress, enforced NetworkPolicy, a writable ReadWriteOnce PVC with POSIX permissions, locking, atomic rename and fsync, and permission to install the shared `ResticApplication` CRD and namespace-scoped resources. Supply enough repository, copy and reconstruction capacity before starting. The default access path needs Traefik with its `IngressRouteTCP` CRD and `websecure` entrypoint, cert-manager, public ports 80/443 and working public DNS for ACME. The [base-k3s recipe](https://github.com/bartlapp/base-k3s/blob/main/README.md#what-this-recipe-delivers), completed through its handover checks, provides the single-node base; any equivalent cluster suffices. Retain absolute kubeconfig paths in every terminal. This package provisions neither infrastructure nor DNS.
 
 ```bash
-test -f "$VALUES" || printf '{}\n' > "$VALUES"
-INSTALLATION_ID="$INSTALLATION_ID" yq -i '
-  .installation = (.installation // strenv(INSTALLATION_ID)) |
-  .dns.root = (.dns.root // "acme.fke.systems") |
-  .services.restic.release = (.services.restic.release // "0.3.0") |
-  .services.restic.repositories = (.services.restic.repositories // [{"name": "records"}]) |
-  .packages.restic = (.packages.restic // {
+if [ ! -e "$VALUES" ]; then
+  CUSTOMER="$CUSTOMER" INSTALLATION_ID="$INSTALLATION_ID" DNS_ROOT="${DNS_ROOT:-acme.fke.systems}" \
+    yq -n '.schemaVersion = 1 | .customer = strenv(CUSTOMER) | .installation = strenv(INSTALLATION_ID) | .dns.root = strenv(DNS_ROOT)' > "$VALUES"
+fi
+yq -e '.schemaVersion == 1 and (.customer != null) and (.installation != null)' "$VALUES" >/dev/null
+DEPLOYMENT=${DEPLOYMENT:-restic}
+CLUSTER=${CLUSTER:-blue}
+DEPLOYMENT="$DEPLOYMENT" CLUSTER="$CLUSTER" yq -i '
+  .deployments[strenv(DEPLOYMENT)] = ({
+    "instance": "restic", "cluster": strenv(CLUSTER), "namespace": "backup",
+    "release": "backup", "package": "restic"} * (.deployments[strenv(DEPLOYMENT)] // {})) |
+  .services[.deployments[strenv(DEPLOYMENT)].instance] = ({
+    "release": "0.3.0", "repositories": [{"name": "records"}]
+  } * (.services[.deployments[strenv(DEPLOYMENT)].instance] // {})) |
+  .packages[.deployments[strenv(DEPLOYMENT)].package] = ({
     "version": "0.3.0", "chart": "oci://ghcr.io/bartlapp/bartl-restic",
-    "chartSha256": "57feb5b39b325e3972fe9a9c870cd6c0c5fe54f2f91faba8b4b1652fb4918253"}) |
-  .deployments.restic = (.deployments.restic // {
-    "instance": "restic", "cluster": "blue", "namespace": "backup",
-    "release": "backup", "package": "restic"})
+    "chartSha256": "57feb5b39b325e3972fe9a9c870cd6c0c5fe54f2f91faba8b4b1652fb4918253"
+  } * (.packages[.deployments[strenv(DEPLOYMENT)].package] // {}))
 ' "$VALUES"
 ```
 
-Retain the target context in `clusters.<cluster>.kubeconfig.context` from base handover or an equivalent cluster. Supply protected `KUBECONFIG` or use the cluster-derived local file; do not store a workstation path in inventory or select the terminal's current context on resume:
+Base retains the complete version-1 resource graph, including `clusters.<cluster>.kubeconfig.context`. For an external target, obtain its authoritative resource description and chosen context from its administrator and retain the complete cluster entry and referenced resources before selecting a deployment. Under the [resource contract](https://github.com/bartlapp/bartl-app/blob/main/docs/how-to-bartlize.md#versioned-resource-contract), self-managed K3s references its VM nodes and their provider bindings; provider-managed EKS references its provider binding and configuration. Use actual management, ownership, provider scope and protected credential references, never inferred values or a context-only cluster. Other Kubernetes implementations need a supported resource description; this package does not provision infrastructure. Unversioned existing records need coordinated resource/consumer migration, not just a version field. New records default `CUSTOMER` to `acme`; existing identity and configuration remain authoritative.
+
+Supply protected `KUBECONFIG` or use the cluster-derived local file; do not store a workstation path in inventory or select the terminal's current context on resume:
 
 ```bash
-DEPLOYMENT=${DEPLOYMENT:-restic}
 INSTANCE=$(DEPLOYMENT="$DEPLOYMENT" yq -er '.deployments[strenv(DEPLOYMENT)].instance' "$VALUES")
 HELM_INSTANCE=${INSTANCE//./\\.}
 CLUSTER=$(DEPLOYMENT="$DEPLOYMENT" yq -er '.deployments[strenv(DEPLOYMENT)].cluster' "$VALUES")
