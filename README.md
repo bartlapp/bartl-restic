@@ -22,8 +22,9 @@ umask 077
 export WORK_DIR="$HOME/bartl/acme/acme-installation"
 export VALUES="$WORK_DIR/installation.yaml"
 mkdir -p "$WORK_DIR/packages"
-helm pull oci://ghcr.io/bartlapp/bartl-restic --version 0.3.0 --destination "$WORK_DIR/packages"
-CHART="$WORK_DIR/packages/bartl-restic-0.3.0.tgz"
+export VERSION=0.3.0
+helm pull oci://ghcr.io/bartlapp/bartl-restic --version "$VERSION" --destination "$WORK_DIR/packages"
+CHART="$WORK_DIR/packages/bartl-restic-$VERSION.tgz"
 CHART_SHA256=57feb5b39b325e3972fe9a9c870cd6c0c5fe54f2f91faba8b4b1652fb4918253
 printf '%s  %s\n' "$CHART_SHA256" "$CHART" | shasum -a 256 --check -
 ```
@@ -51,7 +52,7 @@ yq -i '
   } |
   .services[strenv(INSTANCE)] = {"repositories": [{"name": strenv(REPOSITORY)}]} |
   .packages[strenv(PACKAGE)] = {
-    "version": "0.3.0", "chart": "oci://ghcr.io/bartlapp/bartl-restic",
+    "version": strenv(VERSION), "chart": "oci://ghcr.io/bartlapp/bartl-restic",
     "chartSha256": strenv(CHART_SHA256)
   }
 ' "$VALUES"
@@ -62,29 +63,16 @@ For an idle endpoint, set the selected service's repositories to [] instead; ski
 Read access and render the package's nonsecret declarations:
 
 ```bash
-INSTANCE=$(yq -er '.deployments[strenv(DEPLOYMENT)].instance' "$VALUES")
-CLUSTER_ID=$(yq -er '.deployments[strenv(DEPLOYMENT)].cluster' "$VALUES")
-NS=$(yq -er '.deployments[strenv(DEPLOYMENT)].namespace' "$VALUES")
-RELEASE=$(yq -er '.deployments[strenv(DEPLOYMENT)].release' "$VALUES")
-PACKAGE=$(yq -er '.deployments[strenv(DEPLOYMENT)].package' "$VALUES")
-export INSTANCE CLUSTER_ID PACKAGE
 HELM_INSTANCE=${INSTANCE//./\\.}
 KUBE_CONTEXT=$(yq -er '.clusters[strenv(CLUSTER_ID)].kubeconfig.context' "$VALUES")
 export KUBECONFIG="$WORK_DIR/clusters/$CLUSTER_ID/base/kubeconfig"
 # Replace only with an access file supplied for this selected cluster.
-VERSION=$(yq -er '.packages[strenv(PACKAGE)].version' "$VALUES")
-test "$VERSION" = 0.3.0
-CHART="$WORK_DIR/packages/bartl-restic-$VERSION.tgz"
-CHART_SHA256=$(yq -er '.packages[strenv(PACKAGE)].chartSha256' "$VALUES")
-printf '%s  %s\n' "$CHART_SHA256" "$CHART" | shasum -a 256 --check -
 INSTALL_DIR="$WORK_DIR/clusters/$CLUSTER_ID/applications/$INSTANCE"
 if [ "$DEPLOYMENT" != "$INSTANCE" ]; then INSTALL_DIR="$INSTALL_DIR/deployments/$DEPLOYMENT"; fi
 mkdir -p "$INSTALL_DIR"
-REPLICAS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].replicas, .services[strenv(INSTANCE)].replicas, 1] | map(select(. != null)) | .[0]' "$VALUES")
-INGRESS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].ingressEnabled, .services[strenv(INSTANCE)].ingress.enabled, true] | map(select(. != null)) | .[0]' "$VALUES")
 helm template "$RELEASE" "$CHART" -n "$NS" -f "$VALUES" \
   --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
-  --set "services.$HELM_INSTANCE.ingress.enabled=$INGRESS" --set-string renderMode=connections \
+  --set-string renderMode=connections \
   --show-only templates/connections.yaml > "$INSTALL_DIR/restic-connections.yaml"
 RESTIC_HOST=$(yq -er '.services[strenv(INSTANCE)].endpoints.https.hostname' "$INSTALL_DIR/restic-connections.yaml")
 TLS_SECRET=$(yq -er '.credentials.bindings[strenv(INSTANCE)].tls.secretName' "$INSTALL_DIR/restic-connections.yaml")
@@ -191,11 +179,9 @@ The native worker initializes with copied chunker parameters, copies history and
 For an idle endpoint, no repository credentials or CA input are needed. For a populated endpoint, the native worker initializes new repositories; do not run restic init yourself.
 
 ```bash
-REPLICAS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].replicas, .services[strenv(INSTANCE)].replicas, 1] | map(select(. != null)) | .[0]' "$VALUES")
-INGRESS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].ingressEnabled, .services[strenv(INSTANCE)].ingress.enabled, true] | map(select(. != null)) | .[0]' "$VALUES")
 helm install "$RELEASE" "$CHART" --kube-context "$KUBE_CONTEXT" -n "$NS" -f "$VALUES" \
   --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
-  --set "services.$HELM_INSTANCE.replicas=$REPLICAS" --set "services.$HELM_INSTANCE.ingress.enabled=$INGRESS" --wait=legacy --timeout=5m
+  --wait=legacy --timeout=5m
 if yq -e '.services[strenv(INSTANCE)].endpoints.https.tlsManaged' "$INSTALL_DIR/restic-connections.yaml" >/dev/null; then
   kubectl --context "$KUBE_CONTEXT" -n "$NS" wait "certificate/$TLS_SECRET" --for=condition=Ready --timeout=10m
 fi
@@ -333,6 +319,8 @@ The controller observes and checks retained repositories again. Verify old-point
 
 Starting condition: a healthy resumed endpoint, no admitted work that must finish uninterrupted, and an unused repository name. Do not remove existing declarations: undeclared local history refuses re-admission, even for an otherwise idle endpoint.
 
+If the endpoint was idle, supply the validating CA bundle at `"$INSTALL_DIR/protected/ca.crt"` before running the commands below.
+
 ```bash
 export REPOSITORY=paperless
 yq -i '.services[strenv(INSTANCE)].repositories += [{"name": strenv(REPOSITORY)}]' "$VALUES"
@@ -378,7 +366,7 @@ kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -
     any(.status.conditions[]; .type == "Ready" and .status == "True" and .observedGeneration == $g)'
 ```
 
-Supply the validating CA before this operation if the endpoint was idle. Retain new credentials independently before enabling consumers. Native admission initializes the new repository and drains/reopens the endpoint; verify writer/reader access before handing it over. Rotation is a separate coordinated change, not rerunning credential generation.
+Retain new credentials independently before enabling consumers. Native admission initializes the new repository and drains/reopens the endpoint; verify writer/reader access before handing it over. Rotation is a separate coordinated change, not rerunning credential generation.
 
 ## Connect an application
 
@@ -494,12 +482,17 @@ Skip this step only for an already retired/lost source with independently enforc
 ```bash
 export SOURCE_DEPLOYMENT="$DEPLOYMENT"
 export SOURCE_DIR="$INSTALL_DIR"
-yq -i '.operations.deployments[strenv(DEPLOYMENT)].replicas = 0' "$VALUES"
+yq -i '
+  .operations.deployments[strenv(DEPLOYMENT)].replicas = 0 |
+  .operations.deployments[strenv(DEPLOYMENT)].ingressEnabled = false
+' "$VALUES"
 REPLICAS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].replicas, .services[strenv(INSTANCE)].replicas, 1] | map(select(. != null)) | .[0]' "$VALUES")
 INGRESS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].ingressEnabled, .services[strenv(INSTANCE)].ingress.enabled, true] | map(select(. != null)) | .[0]' "$VALUES")
 helm upgrade "$RELEASE" "$CHART" --kube-context "$KUBE_CONTEXT" -n "$NS" --reset-values -f "$VALUES" \
   --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
   --set "services.$HELM_INSTANCE.replicas=$REPLICAS" --set "services.$HELM_INSTANCE.ingress.enabled=$INGRESS" --wait=legacy --timeout=5m
+kubectl --context "$KUBE_CONTEXT" -n "$NS" wait ingressroutetcp/backup-restic \
+  --for=delete --timeout=5m
 GENERATION=$(kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o jsonpath='{.metadata.generation}')
 kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic \
   --for="jsonpath={.status.conditions[?(@.type==\"Stopped\")].observedGeneration}=$GENERATION" --timeout=30m
@@ -511,7 +504,7 @@ kubectl --context "$KUBE_CONTEXT" -n "$NS" get pods,jobs,cronjobs
 kubectl --context "$KUBE_CONTEXT" -n "$NS" get pvc -o json > "$SOURCE_DIR/source-pvc.json"
 ```
 
-Require all endpoint/lifecycle/copy processes gone and prevent automation from restarting them. Keep the source claim intact. For a lost source, select SOURCE_DEPLOYMENT from the retained record and SOURCE_DIR from independently recovered inputs instead; no source cluster connection is needed.
+Require the source route absent and all endpoint/lifecycle/copy processes gone before target activation; prevent automation from restarting them. Keep the source claim intact. For a lost source, select SOURCE_DEPLOYMENT from the retained record and SOURCE_DIR from independently recovered inputs instead; no source cluster connection is needed.
 
 ### Prepare the target
 
@@ -780,6 +773,7 @@ The hostname must be reachable from the Job and covered by its validating CA. Ke
 Render declarations offline with the verified chart:
 
 ```bash
+INGRESS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].ingressEnabled, .services[strenv(INSTANCE)].ingress.enabled, true] | map(select(. != null)) | .[0]' "$VALUES")
 helm template "$RELEASE" "$CHART" -n "$NS" -f "$VALUES" \
   --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
   --set "services.$HELM_INSTANCE.ingress.enabled=$INGRESS" --set-string renderMode=connections \
@@ -793,7 +787,54 @@ Declarations expose HTTPS endpoint flags/hostname, repository URLs and auth/key/
 
 ## Qualification and maintenance
 
-Exact-artifact evidence remains with the [0.3.0 release](https://github.com/bartlapp/bartl-restic/releases/tag/v0.3.0). Historical [replication](evidence/2026-11-02-replication.json), [Kubernetes](evidence/2026-11-02-kubernetes.json), [endpoint authorization](evidence/2026-11-02-endpoint.json) and [native copy](evidence/2026-11-02-restic-copy.json) scenarios used independent PVCs in one cluster, not a cross-provider outage. They do not qualify this rewritten operating sequence. Maintainer test/publication procedures are in [AGENTS.md](AGENTS.md#qualification-and-test-output).
+Exact-artifact evidence remains with the [0.3.0 release](https://github.com/bartlapp/bartl-restic/releases/tag/v0.3.0). Historical [replication](evidence/2026-11-02-replication.json), [Kubernetes](evidence/2026-11-02-kubernetes.json), [endpoint authorization](evidence/2026-11-02-endpoint.json) and [native copy](evidence/2026-11-02-restic-copy.json) scenarios used independent PVCs in one cluster, not a cross-provider outage. They do not qualify this rewritten operating sequence.
+
+### Qualification and test output
+
+Use `go test ./...`, `node tests/chart.mjs` and `node --test tests/artifacts.test.mjs` for offline checks. Put native Restic 0.19.1 on PATH for `TestIdleLifecycleAddsFirstNativeRepository`; without it that case skips.
+
+Cluster qualification requires an explicitly authorized disposable Hetzner cluster with a default StorageClass, registry access and enforced NetworkPolicy. Local Docker/Colima requires separate permission. Runners do not provision infrastructure or establish cleanup/cost.
+
+```bash
+export BARTL_RESTIC_LAB=hetzner
+export KUBECONFIG=/private/lab-kubeconfig
+export BARTL_RESTIC_IMAGE=REGISTRY/RETAINED_QUALIFICATION_IMAGE
+node tests/lifecycle.mjs
+node tests/kubernetes.mjs
+node tests/replication.mjs
+node tests/observation.mjs
+```
+
+Each runner creates a namespace, finalizes stopped applications before uninstall on success, then destroys disposable data separately. Failures retain diagnostics. Keep the controller alive through finalization. The observation runner needs API Service/EndpointSlice and node-address reads and a temporary root probe with NET_ADMIN; it isolates API traffic while authenticated clients remain available. Require observed API failures and the guard's failure log, not merely configured isolation.
+
+Output defaults to an external private temporary directory. `BARTL_RESTIC_EVIDENCE_DIR` selects another external path; checkout paths and symlink aliases are rejected. `raw.json` holds redacted diagnostics; `qualification.json` holds selected results and source provenance. Provenance records run-start HEAD, dirty state and hashes of implementation, build and test files; a dirty run qualifies those bytes, not HEAD alone. Keep raw artifacts outside Git and put exact artifacts, concise results, limits and cleanup/budget outcome in the release/integration record. Do not add session reports.
+
+For exact 0.3.0 uninstall/reinstall and 0.2.1 migration qualification, retain the verified 0.3.0 archive and use:
+
+```bash
+export CHART=/retained/bartl-restic-0.3.0.tgz
+export IMAGE=ghcr.io/bartlapp/bartl-restic-controller@sha256:f174793e5c622d7eb1d4ae384ac358ec804dae735ddafe2243d710c48b7b8fb3
+export OLD_CHART=oci://ghcr.io/bartlapp/bartl-restic@sha256:78d118df791192bcc8dc08ce7ce13ded3ac01b51c33cd19090c30cb7c2d8f20a
+export OLD_IMAGE=ghcr.io/bartlapp/bartl-restic-controller@sha256:3ee7994268a23b4beff8a10d6ecc77c13471baa7d4f9e073c4a8dad852deb757
+BARTL_RESTIC_REUSE=1 BARTL_RESTIC_CHART="$CHART" BARTL_RESTIC_IMAGE="$IMAGE" \
+  node tests/uninstall.mjs
+BARTL_RESTIC_REUSE=1 BARTL_RESTIC_CHART="$CHART" BARTL_RESTIC_IMAGE="$IMAGE" \
+  BARTL_RESTIC_UPGRADE_FROM_CHART="$OLD_CHART" \
+  BARTL_RESTIC_UPGRADE_FROM_IMAGE="$OLD_IMAGE" node tests/uninstall.mjs
+```
+
+The 0.2.1 archive SHA-256 is `94293548ac5fd0a86976e4af0e678596a53c8d0144dad1983810cea64c9a4dfc`; its flat interface is not accepted by 0.3.0. Qualification must cover preserved repository identity/history, old-point restore, new backups, contender exclusion, stale-worker refusal, finalization, same-PVC reinstall and separate data destruction. Also exercise idle TLS/404, stop/start and first-repository admission against the exact 0.3.0 artifacts; native tests do not replace those cases.
+
+## Release maintenance
+
+Publish immutable public OCI packages under `ghcr.io/bartlapp`, independently of private source access. Never overwrite released versions or silently change visibility/team access.
+
+1. Inspect live repository policy/access and package authority before authorized remote writes. Publication needs `write:packages`; new public package visibility requires explicit approval and an administrator.
+2. Commit release changes separately. Build on an authorized Hetzner host with `Dockerfile`, `--platform linux/amd64`, `--provenance=false`, `--build-arg VERSION=VERSION` and `--build-arg REVISION=FULL_SOURCE_SHA`. Retain source and OCI archives outside Git.
+3. Set chart version and pin the retained image manifest digest. Stage `chart/` with root LICENSE/NOTICE, then package once. Retain the chart archive and checksum.
+4. Publish those retained bytes with digest preservation and isolated temporary credentials. Do not rebuild/repackage between qualification and publication.
+5. With empty registry credentials, acquire chart/image, verify identities and smoke-install on an authorized disposable Hetzner cluster. Check current-generation admission, authenticated backup/restore, stop/start and actual runtime image IDs.
+6. Record artifacts, concise evidence, limits and cleanup/budget outcome in the release/integration record. Use the permitted integration workflow without squashing, retain raw output externally and remove disposable infrastructure.
 
 Original code/configuration use [Apache-2.0](LICENSE); documentation uses CC-BY-4.0 as stated in [NOTICE](NOTICE). Upstream components retain their own terms.
 
