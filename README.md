@@ -728,7 +728,7 @@ kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -
     any(.status.conditions[]; .type == "Ready" and .status == "True" and .observedGeneration == $g)'
 ```
 
-Require unchanged repository identity/history, an old-point restore and a new backup. Do not recreate credentials or storage. Namespace deletion is a separate destructive decision: it deletes retained PVCs/Secrets and may destroy their storage. Never delete the shared CRD as application cleanup. Remove only authorized DNS/infrastructure after data disposition; [Base teardown](https://github.com/bartlapp/base-k3s/blob/main/README.md#delete-the-entire-lab) is separate and destroys node-local data.
+Require unchanged repository identity/history, an old-point restore and a new backup. Do not recreate credentials or storage. Namespace deletion is a separate destructive decision: it deletes retained PVCs/Secrets and may destroy their storage. Never delete the shared CRD as application cleanup. Remove only authorized DNS/infrastructure after data disposition; [Remove the selected cluster](https://github.com/bartlapp/base-k3s/blob/main/README.md#remove-the-selected-cluster) is separate and destroys node-local data.
 
 ## Native maintenance
 
