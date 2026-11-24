@@ -15,7 +15,7 @@ New endpoint: follow the recipe below. Existing endpoint: [resume access](#resum
 
 ## Prerequisites and release
 
-Use the [operator tools](https://github.com/bartlapp/bartl-app/blob/main/docs/operator-workstation.md#check-the-workstation), plus native Restic 0.19.1 for workstation acceptance. Supply an amd64 Kubernetes cluster, registry egress, enforced NetworkPolicy and ReadWriteOnce storage with POSIX permissions, locking, atomic rename and fsync. Allocate repository, copy and reconstruction headroom. The default route needs Traefik's IngressRouteTCP CRD and websecure entrypoint, cert-manager, public ports 80/443 and authorized DNS. [Base](https://github.com/bartlapp/base-k3s/blob/main/README.md) supplies this single-node profile; an equivalent external cluster is sufficient.
+Use the [operator tools](https://github.com/bartlapp/bartl-app/blob/main/docs/operator-workstation.md#check-the-workstation). Repository acceptance and manual file recovery need native Restic 0.19.1 and jq on an operator-controlled verification/recovery host, not necessarily the workstation. That host needs HTTPS access, scoped repository inputs, a validating CA bundle and writable working/cache directories. Supply an amd64 Kubernetes cluster, registry egress, enforced NetworkPolicy and ReadWriteOnce storage with POSIX permissions, locking, atomic rename and fsync. Allocate repository, copy and reconstruction headroom. The default route needs Traefik's IngressRouteTCP CRD and websecure entrypoint, cert-manager, public ports 80/443 and authorized DNS. [Base](https://github.com/bartlapp/base-k3s/blob/main/README.md) supplies this single-node profile; an equivalent external cluster is sufficient.
 
 Start with its version-1 installation record, complete resource references and retained cluster access. Base or the cluster administrator supplies these; do not initialize another record or merely add a version field to an old one. No company tooling, password store or other Bartl service is required.
 
@@ -227,32 +227,43 @@ Helm waits for controller infrastructure, not application acceptance. Require cu
 curl --silent --show-error -o /dev/null -w '%{http_code}\n' "https://$RESTIC_HOST/"
 ```
 
-For a populated endpoint, execute this native writer/reader round-trip. It checks repository access, not application-consistent capture:
+### Verify repository access from a client
+
+For a populated endpoint, run this round-trip on the selected verification host. It checks the public HTTPS interface, not application-consistent capture. Never substitute direct access to the backend's volume. The [reference walkthrough](https://github.com/bartlapp/bartl-app/blob/main/docs/reference-installation/applications.md#verify-a-repository-from-a) prepares A as this client.
+
+Supply that repository's `password`, `writer.restPassword`, `reader.restPassword` and `ca.crt` in a protected directory on the client. Do not transfer repository-admin credentials. Select its URL from the endpoint's declaration and the absolute client input directory. If the calling procedure already supplies these variables, keep them instead of the examples:
+
+```bash
+export REPOSITORY_URL=rest:https://restic.acme.fke.systems/keycloak/
+export REPOSITORY_INPUTS="$HOME/bartl-verification/keycloak"
+```
+
+On that client, execute:
 
 ```bash
 (
   set -euo pipefail
-  directory="$INSTALL_DIR/protected/repositories/$REPOSITORY"
-  export RESTIC_REPOSITORY
-  RESTIC_REPOSITORY=$(INSTANCE="$INSTANCE" yq -er \
-    '.backup.providers[strenv(INSTANCE)].repositories[strenv(REPOSITORY)].repository' \
-    "$INSTALL_DIR/restic-connections.yaml")
+  umask 077
+  directory="$REPOSITORY_INPUTS"
+  export RESTIC_REPOSITORY="$REPOSITORY_URL"
   export RESTIC_PASSWORD_FILE="$directory/password"
   export RESTIC_REST_USERNAME=writer
   export RESTIC_REST_PASSWORD="$(cat "$directory/writer.restPassword")"
-  work=$(mktemp -d "$INSTALL_DIR/roundtrip.XXXXXX")
+  work=$(mktemp -d "$directory/roundtrip.XXXXXX")
   printf 'Standalone backup acceptance\n' > "$work/input"
-  restic --cacert "$INSTALL_DIR/protected/ca.crt" backup "$work/input" --json > "$work/backup.jsonl"
+  restic --cacert "$directory/ca.crt" backup "$work/input" --json > "$work/backup.jsonl"
   snapshot=$(jq -ers '[.[] | select(.message_type == "summary")][0].snapshot_id' "$work/backup.jsonl")
   export RESTIC_REST_USERNAME=reader
   export RESTIC_REST_PASSWORD="$(cat "$directory/reader.restPassword")"
-  restic --cacert "$INSTALL_DIR/protected/ca.crt" snapshots "$snapshot"
-  restic --cacert "$INSTALL_DIR/protected/ca.crt" restore "$snapshot" --target "$work/restored"
+  restic --cacert "$directory/ca.crt" snapshots "$snapshot"
+  restic --cacert "$directory/ca.crt" restore "$snapshot" --target "$work/restored"
   cmp "$work/input" "$work/restored${work}/input"
 )
 ```
 
 Keep the point until retention authorizes deletion. Hand consumers only their repository URL, encryption key, scoped reader/writer credentials and validating CA. Independently retain history and keys; reader transport credentials alone cannot decrypt it.
+
+Return to the workstation's selected deployment for package operations. Application capture/reconstruction and backend maintenance use their packaged native workers; they do not require a workstation Restic installation.
 
 ### Retain operating and recovery inputs
 
@@ -481,6 +492,8 @@ Require secondary full-data integrity checking and a restore of the selected poi
 ## Recover from the secondary
 
 Consumers can recover directly from the surviving endpoint without rebuilding primary. Supply its reader/key/CA and select its full destination snapshot ID. Copy preserves tree and originating original metadata, not necessarily snapshot IDs; original can refer to an earlier copy source.
+
+Run the following on the selected recovery host with native Restic 0.19.1 and its independently supplied reader files. The paths are on that host, not implicitly on the operator's laptop. Ordinary application reconstruction remains owned by its package.
 
 ```bash
 export SECONDARY_URL=rest:https://secondary.example.org/records/
