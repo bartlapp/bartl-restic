@@ -209,9 +209,6 @@ helm install "$RELEASE" "$CHART" --kube-context "$KUBE_CONTEXT" -n "$NS" -f "$VA
 if yq -e '.services[strenv(INSTANCE)].endpoints.https.tlsManaged' "$INSTALL_DIR/restic-connections.yaml" >/dev/null; then
   kubectl --context "$KUBE_CONTEXT" -n "$NS" wait "certificate/$TLS_SECRET" --for=condition=Ready --timeout=10m
 fi
-GENERATION=$(kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o jsonpath='{.metadata.generation}')
-kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic \
-  --for="jsonpath={.status.conditions[?(@.type==\"Ready\")].observedGeneration}=$GENERATION" --timeout=30m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic --for=condition=Ready --timeout=30m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o json | \
   jq -e '.metadata.generation as $g | .status.observedGeneration == $g and
@@ -336,9 +333,6 @@ INGRESS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].ingressEnabled, .s
 helm upgrade "$RELEASE" "$CHART" --kube-context "$KUBE_CONTEXT" -n "$NS" --reset-values -f "$VALUES" \
   --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
   --set "services.$HELM_INSTANCE.replicas=$REPLICAS" --set "services.$HELM_INSTANCE.ingress.enabled=$INGRESS" --wait=legacy --timeout=5m
-GENERATION=$(kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o jsonpath='{.metadata.generation}')
-kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic \
-  --for="jsonpath={.status.conditions[?(@.type==\"Stopped\")].observedGeneration}=$GENERATION" --timeout=30m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic --for=condition=Stopped --timeout=30m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o json | \
   jq -e '.metadata.generation as $g | .status.observedGeneration == $g and
@@ -357,9 +351,6 @@ INGRESS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].ingressEnabled, .s
 helm upgrade "$RELEASE" "$CHART" --kube-context "$KUBE_CONTEXT" -n "$NS" --reset-values -f "$VALUES" \
   --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
   --set "services.$HELM_INSTANCE.replicas=$REPLICAS" --set "services.$HELM_INSTANCE.ingress.enabled=$INGRESS" --wait=legacy --timeout=5m
-GENERATION=$(kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o jsonpath='{.metadata.generation}')
-kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic \
-  --for="jsonpath={.status.conditions[?(@.type==\"Ready\")].observedGeneration}=$GENERATION" --timeout=30m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic --for=condition=Ready --timeout=30m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o json | \
   jq -e '.metadata.generation as $g | .status.observedGeneration == $g and
@@ -410,9 +401,6 @@ kubectl --context "$KUBE_CONTEXT" -n "$NS" create secret generic "$ADMIN" \
 helm upgrade "$RELEASE" "$CHART" --kube-context "$KUBE_CONTEXT" -n "$NS" --reset-values -f "$VALUES" \
   --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
   --set "services.$HELM_INSTANCE.replicas=$REPLICAS" --set "services.$HELM_INSTANCE.ingress.enabled=$INGRESS" --wait=legacy --timeout=5m
-GENERATION=$(kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o jsonpath='{.metadata.generation}')
-kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic \
-  --for="jsonpath={.status.conditions[?(@.type==\"Ready\")].observedGeneration}=$GENERATION" --timeout=30m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic --for=condition=Ready --timeout=30m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o json | \
   jq -e '.metadata.generation as $g | .status.observedGeneration == $g and
@@ -472,9 +460,6 @@ INGRESS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].ingressEnabled, .s
 helm upgrade "$RELEASE" "$CHART" --kube-context "$KUBE_CONTEXT" -n "$NS" --reset-values -f "$VALUES" \
   --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
   --set "services.$HELM_INSTANCE.replicas=$REPLICAS" --set "services.$HELM_INSTANCE.ingress.enabled=$INGRESS" --wait=legacy --timeout=5m
-GENERATION=$(kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o jsonpath='{.metadata.generation}')
-kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic \
-  --for="jsonpath={.status.conditions[?(@.type==\"Ready\")].observedGeneration}=$GENERATION" --timeout=30m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic --for=condition=Ready --timeout=30m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o json | \
   jq -e '.metadata.generation as $g | .status.observedGeneration == $g and
@@ -559,9 +544,6 @@ helm upgrade "$RELEASE" "$CHART" --kube-context "$KUBE_CONTEXT" -n "$NS" --reset
   --set "services.$HELM_INSTANCE.replicas=$REPLICAS" --set "services.$HELM_INSTANCE.ingress.enabled=$INGRESS" --wait=legacy --timeout=5m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" wait ingressroutetcp/backup-restic \
   --for=delete --timeout=5m
-GENERATION=$(kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o jsonpath='{.metadata.generation}')
-kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic \
-  --for="jsonpath={.status.conditions[?(@.type==\"Stopped\")].observedGeneration}=$GENERATION" --timeout=30m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic --for=condition=Stopped --timeout=30m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o json | \
   jq -e '.metadata.generation as $g | .status.observedGeneration == $g and
@@ -727,9 +709,6 @@ helm install "$RELEASE" "$CHART" --kube-context "$KUBE_CONTEXT" -n "$NS" -f "$VA
 if yq -e '.services[strenv(INSTANCE)].endpoints.https.tlsManaged' "$INSTALL_DIR/restic-connections.yaml" >/dev/null; then
   kubectl --context "$KUBE_CONTEXT" -n "$NS" wait "certificate/$TLS_SECRET" --for=condition=Ready --timeout=10m
 fi
-GENERATION=$(kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o jsonpath='{.metadata.generation}')
-kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic \
-  --for="jsonpath={.status.conditions[?(@.type==\"Ready\")].observedGeneration}=$GENERATION" --timeout=30m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic --for=condition=Ready --timeout=30m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o json | \
   jq -e '.metadata.generation as $g | .status.observedGeneration == $g and
@@ -754,9 +733,6 @@ INGRESS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].ingressEnabled, .s
 helm upgrade "$RELEASE" "$CHART" --kube-context "$KUBE_CONTEXT" -n "$NS" --reset-values -f "$VALUES" \
   --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
   --set "services.$HELM_INSTANCE.replicas=$REPLICAS" --set "services.$HELM_INSTANCE.ingress.enabled=$INGRESS" --wait=legacy --timeout=5m
-GENERATION=$(kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o jsonpath='{.metadata.generation}')
-kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic \
-  --for="jsonpath={.status.conditions[?(@.type==\"Ready\")].observedGeneration}=$GENERATION" --timeout=30m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic --for=condition=Ready --timeout=30m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o json |
   jq -e '.metadata.generation as $g | .status.observedGeneration == $g and
@@ -790,9 +766,6 @@ kubectl --context "$KUBE_CONTEXT" apply -f <(helm show crds "$CHART")
 helm upgrade "$RELEASE" "$CHART" --kube-context "$KUBE_CONTEXT" -n "$NS" --reset-values -f "$VALUES" \
   --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
   --set "services.$HELM_INSTANCE.replicas=$REPLICAS" --set "services.$HELM_INSTANCE.ingress.enabled=$INGRESS" --wait=legacy --timeout=5m
-GENERATION=$(kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o jsonpath='{.metadata.generation}')
-kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic \
-  --for="jsonpath={.status.conditions[?(@.type==\"Ready\")].observedGeneration}=$GENERATION" --timeout=30m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic --for=condition=Ready --timeout=30m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o json | \
   jq -e '.metadata.generation as $g | .status.observedGeneration == $g and
@@ -814,9 +787,6 @@ INGRESS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].ingressEnabled, .s
 helm upgrade "$RELEASE" "$CHART" --kube-context "$KUBE_CONTEXT" -n "$NS" --reset-values -f "$VALUES" \
   --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
   --set "services.$HELM_INSTANCE.replicas=$REPLICAS" --set "services.$HELM_INSTANCE.ingress.enabled=$INGRESS" --wait=legacy --timeout=5m
-GENERATION=$(kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o jsonpath='{.metadata.generation}')
-kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic \
-  --for="jsonpath={.status.conditions[?(@.type==\"Stopped\")].observedGeneration}=$GENERATION" --timeout=30m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic --for=condition=Stopped --timeout=30m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o json | \
   jq -e '.metadata.generation as $g | .status.observedGeneration == $g and
@@ -846,9 +816,6 @@ INGRESS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].ingressEnabled, .s
 helm install "$RELEASE" "$CHART" --kube-context "$KUBE_CONTEXT" -n "$NS" -f "$VALUES" \
   --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
   --set "services.$HELM_INSTANCE.replicas=$REPLICAS" --set "services.$HELM_INSTANCE.ingress.enabled=$INGRESS" --wait=legacy --timeout=5m
-GENERATION=$(kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o jsonpath='{.metadata.generation}')
-kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic \
-  --for="jsonpath={.status.conditions[?(@.type==\"Ready\")].observedGeneration}=$GENERATION" --timeout=30m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic --for=condition=Ready --timeout=30m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o json | \
   jq -e '.metadata.generation as $g | .status.observedGeneration == $g and
