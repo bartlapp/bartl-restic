@@ -411,7 +411,7 @@ Retain new credentials independently before enabling consumers. Native admission
 
 ## Connect an application
 
-Use one declared repository per logical application. The [Keycloak](https://github.com/bartlapp/bartl-keycloak/blob/main/README.md) and [Paperless](https://github.com/bartlapp/bartl-paperless/blob/main/README.md) recipes own their installation, identity setup, capture and reconstruction. Follow the instructions applicable to each selected release. Keycloak 0.7.0 is published; its no-backup installation qualification does not qualify this backup composition.
+Use one declared repository per logical application. The [Keycloak](https://github.com/bartlapp/bartl-keycloak/blob/main/README.md) and [Paperless](https://github.com/bartlapp/bartl-paperless/blob/main/README.md) recipes own their installation, identity setup, capture and reconstruction. Follow the instructions applicable to each selected release.
 
 With Restic resumed, choose the already declared repository and the consumer's actual working directory. Export only scoped files in the layout consumed by those recipes; the destination reader/writer directories must be new:
 
