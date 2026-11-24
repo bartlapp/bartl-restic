@@ -269,6 +269,8 @@ Keep independently supplied recovery-reader and replication-writer input directo
 
 ## Resume an existing deployment
 
+### Load retained context
+
 In direnv-hooked Bash, enter the actual deployment directory. A replacement uses its nested `applications/<instance>/deployments/<deployment>` directory. For an older deployment without a selector, first use Base's [one-time selector adoption](https://github.com/bartlapp/base-k3s/blob/main/README.md#refresh-an-existing-installations-context).
 
 ```bash
@@ -298,10 +300,19 @@ helm template "$RELEASE" "$CHART" -n "$NS" -f "$VALUES" \
 RESTIC_HOST=$(yq -er '.services[strenv(INSTANCE)].endpoints.https.hostname' "$INSTALL_DIR/restic-connections.yaml")
 TLS_SECRET=$(yq -er '.credentials.bindings[strenv(INSTANCE)].tls.secretName' "$INSTALL_DIR/restic-connections.yaml")
 CLAIM=$(yq -er '.storage.claims[strenv(INSTANCE)].repository.claimName' "$INSTALL_DIR/restic-connections.yaml")
-kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o yaml
 ```
 
 The published 0.3.0 chart consumes `instance`, not `deployment`. Directory selection supplies its inputs; the commands still project the two retained operation intents as Helm overrides. Explicit false/zero remain effective. Always resume the selected deployment after switching directories; package-local variables and declaration files are refreshed here, not by the context loader.
+
+### Inspect an installed endpoint
+
+After loading context, inspect the live application when it is expected to exist:
+
+```bash
+kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o yaml
+```
+
+For retained-state reinstall, skip this inspection and continue at [Reinstall retained state](#reinstall-retained-state). A missing resource during ordinary operation is still an error, not permission to initialize or reinstall it.
 
 ## Stop and start
 
@@ -557,7 +568,31 @@ Its `protected/` files must already be restored from independent custody. No sou
 
 ### Prepare the target
 
-Choose the target and the independently recovered secondary reader directory. Under SECONDARY_INPUTS, each repository has username, restPassword, password and ca.crt; these belong to the secondary, not the original primary. The example uses one surviving endpoint with matching repository names. For differently named destinations, retain each actual recovery.repository instead of assuming correspondence.
+Choose the target and independently recovered secondary reader directory. Under `SECONDARY_INPUTS`, each local repository name selects a directory containing the surviving endpoint's `username`, `restPassword`, `password` and `ca.crt`.
+
+Before creating the target, inspect the retained repository and replication destinations:
+
+```bash
+INSTANCE=$(yq -er '.deployments[strenv(SOURCE_DEPLOYMENT)].instance' "$VALUES")
+export INSTANCE
+yq '.services[strenv(INSTANCE)] | {repositories, replication}' "$VALUES"
+```
+
+For every repository, keep its existing `recovery` binding if it already identifies the selected surviving history and reader Secret. For a missing binding or an intentionally changed source, select the actual destination below. Read host and repository from the retained replication destination or the surviving endpoint's supplied inventory; do not derive the remote repository name from the local name. Repeat only for repositories whose binding needs selection:
+
+```bash
+export REPOSITORY=records
+export RECOVERY_HOST=secondary.example.org
+export RECOVERY_REPOSITORY=records-secondary
+export RECOVERY_SECRET=records-secondary-reader
+yq -e '.services[strenv(INSTANCE)].repositories[] | select(.name == strenv(REPOSITORY))' "$VALUES"
+yq -i '(.services[strenv(INSTANCE)].repositories[] | select(.name == strenv(REPOSITORY))).recovery = {
+  "host": strenv(RECOVERY_HOST), "repository": strenv(RECOVERY_REPOSITORY),
+  "credentialsSecret": strenv(RECOVERY_SECRET)
+}' "$VALUES"
+```
+
+Verify reader access to each selected history through [Recover from the secondary](#recover-from-the-secondary), using that binding and its protected reader files. The target block below consumes these retained choices unchanged. Keep replication configuration unchanged until this replacement finishes.
 
 ```bash
 {
@@ -565,11 +600,19 @@ export DEPLOYMENT=restic-replacement
 export TARGET_CLUSTER=cluster-2
 export TARGET_NAMESPACE=backup-recovery
 export CAPACITY=20Gi
-export SECONDARY_HOST=secondary.example.org
 export SECONDARY_INPUTS=/protected/secondary/readers
 export SOURCE_DEPLOYMENT SOURCE_DIR
 INSTANCE=$(yq -er '.deployments[strenv(SOURCE_DEPLOYMENT)].instance' "$VALUES")
 export INSTANCE
+TARGET_DIR="$WORK_DIR/clusters/$TARGET_CLUSTER/applications/$INSTANCE/deployments/$DEPLOYMENT"
+mkdir -p "$TARGET_DIR" "$WORK_DIR/packages/$TARGET_PACKAGE"
+export REPLICATION_BEFORE="$SOURCE_DIR/replication-before-replacement.yaml"
+if [ ! -e "$REPLICATION_BEFORE" ]; then
+  (
+    set -o noclobber
+    yq '.services[strenv(INSTANCE)] | pick(["replication"])' "$VALUES" > "$REPLICATION_BEFORE"
+  )
+fi
 yq -i '
   .deployments[strenv(DEPLOYMENT)] = {
     "instance": strenv(INSTANCE), "cluster": strenv(TARGET_CLUSTER),
@@ -579,13 +622,8 @@ yq -i '
     "version": strenv(TARGET_VERSION), "chart": "oci://ghcr.io/bartlapp/bartl-restic"
   } |
   .operations.deployments[strenv(DEPLOYMENT)] = {"replicas": 1, "ingressEnabled": true} |
-  (.services[strenv(INSTANCE)].repositories[]) |= (.recovery = {
-    "host": strenv(SECONDARY_HOST), "repository": .name, "credentialsSecret": (.name + "-secondary-reader")
-  }) |
-  (.services[strenv(INSTANCE)].replication[].suspend) = true
+  (.services[strenv(INSTANCE)].replication[]?.suspend) = true
 ' "$VALUES"
-TARGET_DIR="$WORK_DIR/clusters/$TARGET_CLUSTER/applications/$INSTANCE/deployments/$DEPLOYMENT"
-mkdir -p "$TARGET_DIR" "$WORK_DIR/packages/$TARGET_PACKAGE"
 (
   set -o noclobber
   printf 'source_env ../../../../.envrc\nload_deployment "%s"\n' "$DEPLOYMENT" > "$TARGET_DIR/.envrc"
@@ -599,7 +637,7 @@ cd "$TARGET_DIR"
 }
 ```
 
-At the next prompt, the replacement is selected. Keep `SOURCE_DIR`, `SECONDARY_INPUTS` and `CAPACITY` in this shell; do not rerun creation on a partially prepared target.
+At the next prompt, the replacement is selected. Keep `SOURCE_DIR`, `SECONDARY_INPUTS` and `CAPACITY` in this shell; do not rerun creation on a partially prepared target. The temporary replication file belongs to this replacement operation and stays in the independently retained source-input directory. A retry on another empty target reuses it rather than capturing already suspended settings. In a fresh shell, select the same `SOURCE_DIR` before restoring replication.
 
 ```bash
 VERSION="$PACKAGE_VERSION"
@@ -691,7 +729,29 @@ kubectl --context "$KUBE_CONTEXT" -n "$NS" get pvc -o json > "$INSTALL_DIR/targe
 
 The worker copies chunker parameters and history, checks all destination data and verifies snapshot correspondence. Inspect the result against the authorized secondary inventory, restore an older point and compare contents, then perform a new writer/reader round-trip. Confirm reader/writer denial of destructive backup-content requests. A confirmed empty secondary permits initialization: Ready alone therefore does not prove recovery of expected history.
 
-After acceptance, restore approved replication schedules/destination credentials and consumer publication. Keep the active deployment, selected recovery points and storage identities in the installation record; qualification outcomes belong with the package/release, not a customer execution diary. Source stop intent remains unchanged. If the target may have accepted new writes, do not simply reactivate the predecessor; establish authoritative history and reconcile explicitly.
+After acceptance, restore the independently retained destination credential Secrets as described above. Restore the exact previous replication configuration, including intentionally suspended copies and omitted defaults, then apply it to the replacement:
+
+```bash
+export REPLICATION_BEFORE="$SOURCE_DIR/replication-before-replacement.yaml"
+yq -i 'load(strenv(REPLICATION_BEFORE)) as $before |
+  del(.services[strenv(INSTANCE)].replication) |
+  .services[strenv(INSTANCE)] = (.services[strenv(INSTANCE)] * $before)' "$VALUES"
+REPLICAS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].replicas, .services[strenv(INSTANCE)].replicas, 1] | map(select(. != null)) | .[0]' "$VALUES")
+INGRESS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].ingressEnabled, .services[strenv(INSTANCE)].ingress.enabled, true] | map(select(. != null)) | .[0]' "$VALUES")
+helm upgrade "$RELEASE" "$CHART" --kube-context "$KUBE_CONTEXT" -n "$NS" --reset-values -f "$VALUES" \
+  --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
+  --set "services.$HELM_INSTANCE.replicas=$REPLICAS" --set "services.$HELM_INSTANCE.ingress.enabled=$INGRESS" --wait=legacy --timeout=5m
+GENERATION=$(kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o jsonpath='{.metadata.generation}')
+kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic \
+  --for="jsonpath={.status.conditions[?(@.type==\"Ready\")].observedGeneration}=$GENERATION" --timeout=30m
+kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic --for=condition=Ready --timeout=30m
+kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o json |
+  jq -e '.metadata.generation as $g | .status.observedGeneration == $g and
+    any(.status.conditions[]; .type == "Ready" and .status == "True" and .observedGeneration == $g)'
+kubectl --context "$KUBE_CONTEXT" -n "$NS" get cronjobs
+```
+
+Verify the restored schedules and suspension settings, then remove the temporary file with `rm "$REPLICATION_BEFORE"` and resume consumer publication. Keep this file available across shell/workstation changes until restoration succeeds; it is recovery-operation input, not a customer execution diary. Keep active deployment, selected recovery points and storage identities in the installation record. Source stop intent remains unchanged. If the target may have accepted new writes, do not simply reactivate the predecessor; establish authoritative history and reconcile explicitly.
 
 Failed or interrupted native work leaves the target failed across restart/stop/start. Retain diagnostics, then retry ordinary reconstruction on another independent empty claim. Never clear markers/status, steal a PVC binding, disable locks or blindly unlock. Intact repositories take metadata verification without contacting recovery; absent local state selects recovery, and failed lookup/integrity never means empty history. Native backend retries can run for 15 minutes per operation; client timeout does not cancel them.
 
@@ -764,7 +824,7 @@ Finalization releases only this application's claim binding after confirmed drai
 
 ### Reinstall retained state
 
-Only after successful finalization/uninstall, with the same intact claim/configuration/Secrets and no failed markers or competing owner:
+Only after successful finalization/uninstall, with the same intact claim/configuration/Secrets and no failed markers or competing owner. In a fresh shell, first [load retained context](#load-retained-context) for this deployment; do not run **Inspect an installed endpoint**, since its application resource has deliberately been removed. Then reinstall:
 
 ```bash
 yq -i '.operations.deployments[strenv(DEPLOYMENT)].replicas = 1' "$VALUES"
