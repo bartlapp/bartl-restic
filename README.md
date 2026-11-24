@@ -6,6 +6,13 @@ Authenticated HTTPS repositories with append-only writers, scoped recovery reade
 
 New endpoint: follow the recipe below. Existing endpoint: [resume access](#resume-an-existing-deployment), then choose an operation. Run workstation Bash, keep tracing off and stop at a failed command. Creation is not a replay or partial-state repair procedure.
 
+- [Install a new endpoint](#prerequisites-and-release)
+- [Resume an existing deployment](#resume-an-existing-deployment)
+- [Stop and start](#stop-and-start)
+- [Add a repository](#add-a-repository) and [connect an application](#connect-an-application)
+- [Replicate](#scheduled-replication), [recover files](#recover-from-the-secondary) or [replace the endpoint](#replace-an-endpoint-on-fresh-storage)
+- [Migrate configuration](#migrate-flat-021-inputs-to-030), [remove/reinstall](#supported-uninstall) and [maintain repositories](#native-maintenance)
+
 ## Prerequisites and release
 
 Use the [operator tools](https://github.com/bartlapp/bartl-app/blob/main/docs/operator-workstation.md#check-the-workstation), plus native Restic 0.19.1 for workstation acceptance. Supply an amd64 Kubernetes cluster, registry egress, enforced NetworkPolicy and ReadWriteOnce storage with POSIX permissions, locking, atomic rename and fsync. Allocate repository, copy and reconstruction headroom. The default route needs Traefik's IngressRouteTCP CRD and websecure entrypoint, cert-manager, public ports 80/443 and authorized DNS. [Base](https://github.com/bartlapp/base-k3s/blob/main/README.md) supplies this single-node profile; an equivalent external cluster is sufficient.
@@ -14,37 +21,42 @@ Start with its version-1 installation record, complete resource references and r
 
 This recipe uses published **0.3.0**, rest-server 0.14.0, nginx 1.28.0 and Restic 0.19.1. [Release evidence](https://github.com/bartlapp/bartl-restic/releases/tag/v0.3.0) identifies its immutable artifacts; this revised recipe has not renewed live qualification. The 0.2.x flat interface needs the explicit migration below. Do not pair this chart with an old controller image.
 
-Choose the existing installation directory and obtain the archive. If independently retained, restore it to this path instead of pulling again:
+Use direnv-hooked Bash. For an existing Base installation, [refresh its root context](https://github.com/bartlapp/base-k3s/blob/main/README.md#refresh-an-existing-installations-context) before adopting deployment selectors. An external cluster uses [supplied cluster access](https://github.com/bartlapp/base-k3s/blob/main/README.md#use-supplied-cluster-access); no Hetzner machine fields are needed.
+
+Select the prepared cluster directory:
+
+```bash
+cd "${WORK_DIR_ROOT:-$HOME/bartl}/acme/acme-installation/clusters/cluster-1"
+```
+
+At the next prompt, verify access and download the latest stable package. Helm excludes prereleases by default:
 
 ```bash
 set -euo pipefail
 umask 077
-export WORK_DIR="$HOME/bartl/acme/acme-installation"
-export VALUES="$WORK_DIR/installation.yaml"
+kubectl --context "$KUBE_CONTEXT" get nodes,storageclass
 mkdir -p "$WORK_DIR/packages"
-export VERSION=0.3.0
-helm pull oci://ghcr.io/bartlapp/bartl-restic --version "$VERSION" --destination "$WORK_DIR/packages"
-CHART="$WORK_DIR/packages/bartl-restic-$VERSION.tgz"
-CHART_SHA256=57feb5b39b325e3972fe9a9c870cd6c0c5fe54f2f91faba8b4b1652fb4918253
-printf '%s  %s\n' "$CHART_SHA256" "$CHART" | shasum -a 256 --check -
+CHART_STAGE=$(mktemp -d "$WORK_DIR/packages/.restic.XXXXXX")
+helm pull oci://ghcr.io/bartlapp/bartl-restic --untar --untardir "$CHART_STAGE"
+export PACKAGE_VERSION
+PACKAGE_VERSION=$(helm show chart "$CHART_STAGE/bartl-restic" | yq -er '.version')
 ```
 
-Retain the exact chart, pinned images, configuration, encrypted history and protected keys independently of the covered failure domain. Before relying on backups, agree data-loss/interruption limits, source retirement, primary/secondary retention, holds, capacity and responsibility for alerts, integrity checks and restore exercises. A schedule is not a recovery objective.
+The registry supplies immutable charts and pinned images; the local chart cache is disposable. Retain configuration, encrypted history and protected keys independently of the covered failure domain. Before relying on backups, agree data-loss/interruption limits, source retirement, primary/secondary retention, holds, capacity and responsibility for alerts, integrity checks and restore exercises. A schedule is not a recovery objective.
 
 ## Configure a new endpoint
 
 Choose unused deployment, instance and package keys and a fresh namespace. These assignments replace only those entries and preserve unrelated installation content. The release name in this recipe is backup. A replacement retains the original instance and uses the recovery procedure instead.
 
 ```bash
+{
 export DEPLOYMENT=restic
 export INSTANCE=restic
-export CLUSTER_ID=cluster-1
 export NS=backup
 export RELEASE=backup
 export PACKAGE=restic
 export REPOSITORY=records
 export CAPACITY=20Gi
-export CHART_SHA256
 yq -i '
   .deployments[strenv(DEPLOYMENT)] = {
     "instance": strenv(INSTANCE), "cluster": strenv(CLUSTER_ID),
@@ -52,24 +64,36 @@ yq -i '
   } |
   .services[strenv(INSTANCE)] = {"repositories": [{"name": strenv(REPOSITORY)}]} |
   .packages[strenv(PACKAGE)] = {
-    "version": strenv(VERSION), "chart": "oci://ghcr.io/bartlapp/bartl-restic",
-    "chartSha256": strenv(CHART_SHA256)
+    "version": strenv(PACKAGE_VERSION), "chart": "oci://ghcr.io/bartlapp/bartl-restic"
   }
 ' "$VALUES"
+DEPLOYMENT_DIR="$WORK_DIR/clusters/$CLUSTER_ID/applications/$INSTANCE"
+CLUSTER_ENV=../../.envrc
+if [ "$DEPLOYMENT" != "$INSTANCE" ]; then
+  DEPLOYMENT_DIR="$DEPLOYMENT_DIR/deployments/$DEPLOYMENT"
+  CLUSTER_ENV=../../../../.envrc
+fi
+mkdir -p "$DEPLOYMENT_DIR" "$WORK_DIR/packages/$PACKAGE"
+(
+  set -o noclobber
+  printf 'source_env %s\nload_deployment "%s"\n' "$CLUSTER_ENV" "$DEPLOYMENT" > "$DEPLOYMENT_DIR/.envrc"
+)
+if [ ! -d "$WORK_DIR/packages/$PACKAGE/$PACKAGE_VERSION" ]; then
+  mv "$CHART_STAGE/bartl-restic" "$WORK_DIR/packages/$PACKAGE/$PACKAGE_VERSION"
+fi
+rm -r "$CHART_STAGE"
+direnv allow "$DEPLOYMENT_DIR"
+cd "$DEPLOYMENT_DIR"
+}
 ```
 
 For an idle endpoint, set the selected service's repositories to [] instead; skip repository credentials and file-round-trip acceptance. Idle endpoints serve trusted TLS with HTTP 404. To override hostname, claim, TLS or routing, set the [service inputs](#helm-inputs-and-connections) before rendering. External certificates require tls.managed: false throughout subsequent operations.
 
-Read access and render the package's nonsecret declarations:
+Wait for the next prompt: the selector loads the recorded deployment and normalized `CHART` path. The grouped setup above records choices and enters their directory before direnv reloads. Render the package's nonsecret declarations:
 
 ```bash
 HELM_INSTANCE=${INSTANCE//./\\.}
-KUBE_CONTEXT=$(yq -er '.clusters[strenv(CLUSTER_ID)].kubeconfig.context' "$VALUES")
-export KUBECONFIG="$WORK_DIR/clusters/$CLUSTER_ID/base/kubeconfig"
-# Replace only with an access file supplied for this selected cluster.
-INSTALL_DIR="$WORK_DIR/clusters/$CLUSTER_ID/applications/$INSTANCE"
-if [ "$DEPLOYMENT" != "$INSTANCE" ]; then INSTALL_DIR="$INSTALL_DIR/deployments/$DEPLOYMENT"; fi
-mkdir -p "$INSTALL_DIR"
+VERSION="$PACKAGE_VERSION"
 helm template "$RELEASE" "$CHART" -n "$NS" -f "$VALUES" \
   --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
   --set-string renderMode=connections \
@@ -230,34 +254,41 @@ For a populated endpoint, execute this native writer/reader round-trip. It check
 
 Keep the point until retention authorizes deletion. Hand consumers only their repository URL, encryption key, scoped reader/writer credentials and validating CA. Independently retain history and keys; reader transport credentials alone cannot decrypt it.
 
+### Retain operating and recovery inputs
+
+Keep `installation.yaml` and the deployment selector. Protect the following files independently of the endpoint; runtime Kubernetes Secrets are copies, not their sole custody:
+
+| Files relative to `INSTALL_DIR` | Scope and consumer |
+| --- | --- |
+| `protected/repositories/<name>/password` | Instance-wide repository encryption key; native workers and scoped consumers. |
+| `protected/repositories/<name>/{htpasswd,writer.restPassword,reader.restPassword,admin.restPassword}` | Instance-wide authentication; retain the existing hashes. Admin authority stays with endpoint maintenance. |
+| `protected/ca.crt` | Trust bundle used by native clients and credential Secrets. |
+| `tls/{fullchain.pem,key.pem}` | Deployment TLS inputs when external certificates are selected; managed certificates are issued on the target. |
+
+Keep independently supplied recovery-reader and replication-writer input directories with their retained Secret references too. Retrieve the original repository keys/passwords before replacement or reinstall; never regenerate them to make a missing input disappear. Keep chart caches, rendered declarations, logs and plaintext files out of Git. Retain temporary receipts needed by an active operation, not a permanent installation success log.
+
 ## Resume an existing deployment
 
-Select the retained record and deployment in fresh Bash. Restore its exact archive first. This refreshes local declarations without changing configuration, credentials or cluster resources; do not run creation blocks.
+In direnv-hooked Bash, enter the actual deployment directory. A replacement uses its nested `applications/<instance>/deployments/<deployment>` directory. For an older deployment without a selector, first use Base's [one-time selector adoption](https://github.com/bartlapp/base-k3s/blob/main/README.md#refresh-an-existing-installations-context).
+
+```bash
+cd "${WORK_DIR_ROOT:-$HOME/bartl}/acme/acme-installation/clusters/cluster-1/applications/restic"
+```
+
+At the next prompt, reacquire the recorded package only if its cache is absent, then load operation settings. This creates no credentials, claims or cluster resources. Restore protected files from their independent custody before operations that need them.
 
 ```bash
 set -euo pipefail
 umask 077
-export WORK_DIR="$HOME/bartl/acme/acme-installation"
-export VALUES="$WORK_DIR/installation.yaml"
-export DEPLOYMENT=restic
-INSTANCE=$(yq -er '.deployments[strenv(DEPLOYMENT)].instance' "$VALUES")
-CLUSTER_ID=$(yq -er '.deployments[strenv(DEPLOYMENT)].cluster' "$VALUES")
-NS=$(yq -er '.deployments[strenv(DEPLOYMENT)].namespace' "$VALUES")
-RELEASE=$(yq -er '.deployments[strenv(DEPLOYMENT)].release' "$VALUES")
-PACKAGE=$(yq -er '.deployments[strenv(DEPLOYMENT)].package' "$VALUES")
-export INSTANCE CLUSTER_ID PACKAGE
+if [ ! -d "$CHART" ]; then
+  mkdir -p "$WORK_DIR/packages/$PACKAGE"
+  CHART_STAGE=$(mktemp -d "$WORK_DIR/packages/.restic.XXXXXX")
+  helm pull "$CHART_REF" --version "$PACKAGE_VERSION" --untar --untardir "$CHART_STAGE"
+  mv "$CHART_STAGE/bartl-restic" "$CHART"
+  rm -r "$CHART_STAGE"
+fi
+VERSION="$PACKAGE_VERSION"
 HELM_INSTANCE=${INSTANCE//./\\.}
-KUBE_CONTEXT=$(yq -er '.clusters[strenv(CLUSTER_ID)].kubeconfig.context' "$VALUES")
-export KUBECONFIG="$WORK_DIR/clusters/$CLUSTER_ID/base/kubeconfig"
-# Replace only with an access file supplied for this selected cluster.
-VERSION=$(yq -er '.packages[strenv(PACKAGE)].version' "$VALUES")
-test "$VERSION" = 0.3.0
-CHART="$WORK_DIR/packages/bartl-restic-$VERSION.tgz"
-CHART_SHA256=$(yq -er '.packages[strenv(PACKAGE)].chartSha256' "$VALUES")
-printf '%s  %s\n' "$CHART_SHA256" "$CHART" | shasum -a 256 --check -
-INSTALL_DIR="$WORK_DIR/clusters/$CLUSTER_ID/applications/$INSTANCE"
-if [ "$DEPLOYMENT" != "$INSTANCE" ]; then INSTALL_DIR="$INSTALL_DIR/deployments/$DEPLOYMENT"; fi
-mkdir -p "$INSTALL_DIR"
 REPLICAS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].replicas, .services[strenv(INSTANCE)].replicas, 1] | map(select(. != null)) | .[0]' "$VALUES")
 INGRESS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].ingressEnabled, .services[strenv(INSTANCE)].ingress.enabled, true] | map(select(. != null)) | .[0]' "$VALUES")
 helm template "$RELEASE" "$CHART" -n "$NS" -f "$VALUES" \
@@ -270,7 +301,7 @@ CLAIM=$(yq -er '.storage.claims[strenv(INSTANCE)].repository.claimName' "$INSTAL
 kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o yaml
 ```
 
-Version 0.3.0 consumes instance, not a deployment selector. The two retained deployment intents are passed as Helm overrides; explicit false/zero remain effective. Fresh-shell resumption reads them, never resets them.
+The published 0.3.0 chart consumes `instance`, not `deployment`. Directory selection supplies its inputs; the commands still project the two retained operation intents as Helm overrides. Explicit false/zero remain effective. Always resume the selected deployment after switching directories; package-local variables and declaration files are refreshed here, not by the context loader.
 
 ## Stop and start
 
@@ -370,7 +401,7 @@ Retain new credentials independently before enabling consumers. Native admission
 
 ## Connect an application
 
-Use one declared repository per logical application. The [Keycloak](https://github.com/bartlapp/bartl-keycloak/blob/main/README.md) and [Paperless](https://github.com/bartlapp/bartl-paperless/blob/main/README.md) recipes own their installation, identity setup, capture and reconstruction. Retain each selected release's instructions; the historical composition was Keycloak 0.6.1 with Paperless 0.2.0, not the current Keycloak candidate.
+Use one declared repository per logical application. The [Keycloak](https://github.com/bartlapp/bartl-keycloak/blob/main/README.md) and [Paperless](https://github.com/bartlapp/bartl-paperless/blob/main/README.md) recipes own their installation, identity setup, capture and reconstruction. Follow the instructions applicable to each selected release. Keycloak 0.7.0 is published; its no-backup installation qualification does not qualify this backup composition.
 
 With Restic resumed, choose the already declared repository and the consumer's actual working directory. Export only scoped files in the layout consumed by those recipes; the destination reader/writer directories must be new:
 
@@ -471,9 +502,20 @@ For application recovery, use the consumer's reconstruction procedure and verify
 
 ## Replace an endpoint on fresh storage
 
-Starting condition: independently retained configuration, exact 0.3.0 archive, original primary credentials and a verified usable secondary for every declared repository. Supply a target cluster, fresh namespace/claim and capacity. Authorize interruption, accepted loss, final-write handling and retirement first. A second namespace on the same host is not provider-loss protection.
+Starting condition: independently retained configuration, original primary credentials and a verified usable secondary for every declared repository. Supply a target cluster, fresh namespace/claim and capacity. Authorize interruption, accepted loss, final-write handling and retirement first. A second namespace on the same host is not provider-loss protection. Acquire the target package before interrupting the source; use its supported native transition, not an assumed downgrade path.
 
 For a reachable source, resume it, stop consumer publication and finish/verify final secondary copies before the endpoint stop. Preserve logs and confirm current-generation drainage. For a lost source, enforce retirement independently, including a returning predecessor; unreachability and DNS changes do not fence it. If retirement cannot be established, do not activate the target.
+
+Select a new package key and acquire its latest stable release while the source remains selected:
+
+```bash
+export TARGET_PACKAGE=restic-replacement
+mkdir -p "$WORK_DIR/packages"
+TARGET_STAGE=$(mktemp -d "$WORK_DIR/packages/.restic.XXXXXX")
+helm pull oci://ghcr.io/bartlapp/bartl-restic --untar --untardir "$TARGET_STAGE"
+export TARGET_VERSION
+TARGET_VERSION=$(helm show chart "$TARGET_STAGE/bartl-restic" | yq -er '.version')
+```
 
 ### Retire the reachable source
 
@@ -504,13 +546,21 @@ kubectl --context "$KUBE_CONTEXT" -n "$NS" get pods,jobs,cronjobs
 kubectl --context "$KUBE_CONTEXT" -n "$NS" get pvc -o json > "$SOURCE_DIR/source-pvc.json"
 ```
 
-Require the source route absent and all endpoint/lifecycle/copy processes gone before target activation; prevent automation from restarting them. Keep the source claim intact. For a lost source, select SOURCE_DEPLOYMENT from the retained record and SOURCE_DIR from independently recovered inputs instead; no source cluster connection is needed.
+Require the source route absent and all endpoint/lifecycle/copy processes gone before target activation; prevent automation from restarting them. Keep the source claim intact. For a lost source, enter the retained installation root and select the source key and independently recovered local input directory explicitly:
+
+```bash
+export SOURCE_DEPLOYMENT=restic
+export SOURCE_DIR="$WORK_DIR/clusters/cluster-1/applications/restic"
+```
+
+Its `protected/` files must already be restored from independent custody. No source API connection is needed. These assignments replace the source-retirement block only when retirement is already independently enforced.
 
 ### Prepare the target
 
 Choose the target and the independently recovered secondary reader directory. Under SECONDARY_INPUTS, each repository has username, restPassword, password and ca.crt; these belong to the secondary, not the original primary. The example uses one surviving endpoint with matching repository names. For differently named destinations, retain each actual recovery.repository instead of assuming correspondence.
 
 ```bash
+{
 export DEPLOYMENT=restic-replacement
 export TARGET_CLUSTER=cluster-2
 export TARGET_NAMESPACE=backup-recovery
@@ -519,12 +569,14 @@ export SECONDARY_HOST=secondary.example.org
 export SECONDARY_INPUTS=/protected/secondary/readers
 export SOURCE_DEPLOYMENT SOURCE_DIR
 INSTANCE=$(yq -er '.deployments[strenv(SOURCE_DEPLOYMENT)].instance' "$VALUES")
-PACKAGE=$(yq -er '.deployments[strenv(SOURCE_DEPLOYMENT)].package' "$VALUES")
-export INSTANCE PACKAGE
+export INSTANCE
 yq -i '
   .deployments[strenv(DEPLOYMENT)] = {
     "instance": strenv(INSTANCE), "cluster": strenv(TARGET_CLUSTER),
-    "namespace": strenv(TARGET_NAMESPACE), "release": "backup", "package": strenv(PACKAGE)
+    "namespace": strenv(TARGET_NAMESPACE), "release": "backup", "package": strenv(TARGET_PACKAGE)
+  } |
+  .packages[strenv(TARGET_PACKAGE)] = {
+    "version": strenv(TARGET_VERSION), "chart": "oci://ghcr.io/bartlapp/bartl-restic"
   } |
   .operations.deployments[strenv(DEPLOYMENT)] = {"replicas": 1, "ingressEnabled": true} |
   (.services[strenv(INSTANCE)].repositories[]) |= (.recovery = {
@@ -532,24 +584,26 @@ yq -i '
   }) |
   (.services[strenv(INSTANCE)].replication[].suspend) = true
 ' "$VALUES"
-INSTANCE=$(yq -er '.deployments[strenv(DEPLOYMENT)].instance' "$VALUES")
-CLUSTER_ID=$(yq -er '.deployments[strenv(DEPLOYMENT)].cluster' "$VALUES")
-NS=$(yq -er '.deployments[strenv(DEPLOYMENT)].namespace' "$VALUES")
-RELEASE=$(yq -er '.deployments[strenv(DEPLOYMENT)].release' "$VALUES")
-PACKAGE=$(yq -er '.deployments[strenv(DEPLOYMENT)].package' "$VALUES")
-export INSTANCE CLUSTER_ID PACKAGE
+TARGET_DIR="$WORK_DIR/clusters/$TARGET_CLUSTER/applications/$INSTANCE/deployments/$DEPLOYMENT"
+mkdir -p "$TARGET_DIR" "$WORK_DIR/packages/$TARGET_PACKAGE"
+(
+  set -o noclobber
+  printf 'source_env ../../../../.envrc\nload_deployment "%s"\n' "$DEPLOYMENT" > "$TARGET_DIR/.envrc"
+)
+if [ ! -d "$WORK_DIR/packages/$TARGET_PACKAGE/$TARGET_VERSION" ]; then
+  mv "$TARGET_STAGE/bartl-restic" "$WORK_DIR/packages/$TARGET_PACKAGE/$TARGET_VERSION"
+fi
+rm -r "$TARGET_STAGE"
+direnv allow "$TARGET_DIR"
+cd "$TARGET_DIR"
+}
+```
+
+At the next prompt, the replacement is selected. Keep `SOURCE_DIR`, `SECONDARY_INPUTS` and `CAPACITY` in this shell; do not rerun creation on a partially prepared target.
+
+```bash
+VERSION="$PACKAGE_VERSION"
 HELM_INSTANCE=${INSTANCE//./\\.}
-KUBE_CONTEXT=$(yq -er '.clusters[strenv(CLUSTER_ID)].kubeconfig.context' "$VALUES")
-export KUBECONFIG="$WORK_DIR/clusters/$CLUSTER_ID/base/kubeconfig"
-# Replace only with an access file supplied for this selected cluster.
-VERSION=$(yq -er '.packages[strenv(PACKAGE)].version' "$VALUES")
-test "$VERSION" = 0.3.0
-CHART="$WORK_DIR/packages/bartl-restic-$VERSION.tgz"
-CHART_SHA256=$(yq -er '.packages[strenv(PACKAGE)].chartSha256' "$VALUES")
-printf '%s  %s\n' "$CHART_SHA256" "$CHART" | shasum -a 256 --check -
-INSTALL_DIR="$WORK_DIR/clusters/$CLUSTER_ID/applications/$INSTANCE"
-if [ "$DEPLOYMENT" != "$INSTANCE" ]; then INSTALL_DIR="$INSTALL_DIR/deployments/$DEPLOYMENT"; fi
-mkdir -p "$INSTALL_DIR"
 REPLICAS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].replicas, .services[strenv(INSTANCE)].replicas, 1] | map(select(. != null)) | .[0]' "$VALUES")
 INGRESS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].ingressEnabled, .services[strenv(INSTANCE)].ingress.enabled, true] | map(select(. != null)) | .[0]' "$VALUES")
 helm template "$RELEASE" "$CHART" -n "$NS" -f "$VALUES" \
@@ -637,7 +691,7 @@ kubectl --context "$KUBE_CONTEXT" -n "$NS" get pvc -o json > "$INSTALL_DIR/targe
 
 The worker copies chunker parameters and history, checks all destination data and verifies snapshot correspondence. Inspect the result against the authorized secondary inventory, restore an older point and compare contents, then perform a new writer/reader round-trip. Confirm reader/writer denial of destructive backup-content requests. A confirmed empty secondary permits initialization: Ready alone therefore does not prove recovery of expected history.
 
-After acceptance, restore approved replication schedules/destination credentials and consumer publication. Record the active deployment, selected points, storage identities, observed recovery time and acceptance in the installation's existing operating record. Source stop intent remains unchanged. If the target may have accepted new writes, do not simply reactivate the predecessor; establish authoritative history and reconcile explicitly.
+After acceptance, restore approved replication schedules/destination credentials and consumer publication. Keep the active deployment, selected recovery points and storage identities in the installation record; qualification outcomes belong with the package/release, not a customer execution diary. Source stop intent remains unchanged. If the target may have accepted new writes, do not simply reactivate the predecessor; establish authoritative history and reconcile explicitly.
 
 Failed or interrupted native work leaves the target failed across restart/stop/start. Retain diagnostics, then retry ordinary reconstruction on another independent empty claim. Never clear markers/status, steal a PVC binding, disable locks or blindly unlock. Intact repositories take metadata verification without contacting recovery; absent local state selects recovery, and failed lookup/integrity never means empty history. Native backend retries can run for 15 minutes per operation; client timeout does not cancel them.
 
@@ -645,9 +699,9 @@ Failed or interrupted native work leaves the target failed across restart/stop/s
 
 Retain the original flat values, exact chart/image, credentials and repository identities. Preserve release/namespace, PVC, all explicit Secret names and external TLS ownership. This is an explicit configuration migration, not --reuse-values or a compatibility shim.
 
-In the installation record, move application.replicas to services.<instance>.replicas; move existingClaim, tlsSecret, repositories, replication and maintenance under that service. Set release to 0.3.0 if retaining the version assertion. Set tls.managed: false for external certificates and ingress.enabled: false when retaining an external TLS-preserving route. Retire old image overrides. Register the 0.3.0 archive/checksum and select the retained deployment; compare rendered URLs, claims and Secret bindings against the old installation before applying anything.
+In the installation record, move application.replicas to services.<instance>.replicas; move existingClaim, tlsSecret, repositories, replication and maintenance under that service. Set release to 0.3.0 if retaining the version assertion. Set tls.managed: false for external certificates and ingress.enabled: false when retaining an external TLS-preserving route. Retire old image overrides. Register the immutable 0.3.0 package reference in `packages` and select it in the retained deployment, then use [Resume an existing deployment](#resume-an-existing-deployment) to acquire it. Compare rendered URLs, claims and Secret bindings against the old installation before applying anything.
 
-With the migrated target selected and its archive verified:
+With the migrated target selected:
 
 ```bash
 REPLICAS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].replicas, .services[strenv(INSTANCE)].replicas, 1] | map(select(. != null)) | .[0]' "$VALUES")
