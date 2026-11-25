@@ -274,7 +274,7 @@ Keep independently supplied recovery-reader and replication-writer input directo
 
 ### Load retained context
 
-In direnv-hooked Bash, enter the actual deployment directory. A replacement uses its nested `applications/<instance>/deployments/<deployment>` directory. For an older deployment without a selector, first use Base's [one-time selector adoption](https://github.com/bartlapp/base-k3s/blob/main/README.md#refresh-an-existing-installations-context).
+In direnv-hooked Bash, enter the actual deployment directory. A replacement uses its nested `applications/<instance>/deployments/<deployment>` directory. For a deployment without a selector, first use Base's [one-time selector adoption](https://github.com/bartlapp/base-k3s/blob/main/README.md#adopt-a-missing-deployment-selector).
 
 ```bash
 cd "${WORK_DIR_ROOT:-$HOME/bartl}/acme/acme-installation/clusters/cluster-1/applications/restic"
