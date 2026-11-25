@@ -45,7 +45,7 @@ The registry supplies immutable charts and pinned images; the local chart cache 
 
 ## Configure a new endpoint
 
-Choose unused deployment, instance and package keys and a fresh namespace. These assignments replace only those entries and preserve unrelated installation content. The release name in this recipe is backup. A replacement retains the original instance and uses the recovery procedure instead.
+Choose unused deployment and instance keys and a fresh namespace. Reuse a package key only when its recorded chart and version match the acquired artifact; otherwise choose an unused package key. These assignments preserve unrelated installation content. The release name in this recipe is backup. A replacement retains the original instance and uses the recovery procedure instead.
 
 ```bash
 {
@@ -56,15 +56,18 @@ export RELEASE=backup
 export PACKAGE=restic
 export REPOSITORY=records
 export CAPACITY=20Gi
+yq -e '.packages[strenv(PACKAGE)] == null or
+  (.packages[strenv(PACKAGE)].version == strenv(PACKAGE_VERSION) and
+   .packages[strenv(PACKAGE)].chart == "oci://ghcr.io/bartlapp/bartl-restic")' "$VALUES" >/dev/null
 yq -i '
   .deployments[strenv(DEPLOYMENT)] = {
     "instance": strenv(INSTANCE), "cluster": strenv(CLUSTER_ID),
     "namespace": strenv(NS), "release": strenv(RELEASE), "package": strenv(PACKAGE)
   } |
   .services[strenv(INSTANCE)] = {"repositories": [{"name": strenv(REPOSITORY)}]} |
-  .packages[strenv(PACKAGE)] = {
+  .packages[strenv(PACKAGE)] = (.packages[strenv(PACKAGE)] // {
     "version": strenv(PACKAGE_VERSION), "chart": "oci://ghcr.io/bartlapp/bartl-restic"
-  }
+  })
 ' "$VALUES"
 DEPLOYMENT_DIR="$WORK_DIR/clusters/$CLUSTER_ID/applications/$INSTANCE"
 CLUSTER_ENV=../../.envrc
@@ -500,7 +503,7 @@ Starting condition: independently retained configuration, original primary crede
 
 For a reachable source, [prepare its chart-backed operations](#prepare-chart-backed-operations), stop consumer publication and finish/verify final secondary copies before the endpoint stop. Preserve logs and confirm current-generation drainage. For a lost source, enforce retirement independently, including a returning predecessor; unreachability and DNS changes do not fence it. If retirement cannot be established, do not activate the target.
 
-Select a new package key and acquire the latest stable release while the source remains selected:
+Acquire the latest stable release while the source remains selected. Reuse a matching package entry; select an unused key only for a different artifact:
 
 ```bash
 export TARGET_PACKAGE=restic-replacement
@@ -509,6 +512,10 @@ TARGET_STAGE=$(mktemp -d "$WORK_DIR/packages/.restic.XXXXXX")
 helm pull oci://ghcr.io/bartlapp/bartl-restic --untar --untardir "$TARGET_STAGE"
 export TARGET_VERSION
 TARGET_VERSION=$(helm show chart "$TARGET_STAGE/bartl-restic" | yq -er '.version')
+MATCHING_PACKAGE=$(yq -o=json '.packages // {}' "$VALUES" |
+  jq -r --arg version "$TARGET_VERSION" '[to_entries[] |
+    select(.value.chart == "oci://ghcr.io/bartlapp/bartl-restic" and .value.version == $version) | .key][0] // empty')
+if [ -n "$MATCHING_PACKAGE" ]; then TARGET_PACKAGE="$MATCHING_PACKAGE"; fi
 ```
 
 ### Retire the reachable source
@@ -590,14 +597,17 @@ if [ ! -e "$REPLICATION_BEFORE" ]; then
     yq '.services[strenv(INSTANCE)] | pick(["replication"])' "$VALUES" > "$REPLICATION_BEFORE"
   )
 fi
+yq -e '.packages[strenv(TARGET_PACKAGE)] == null or
+  (.packages[strenv(TARGET_PACKAGE)].version == strenv(TARGET_VERSION) and
+   .packages[strenv(TARGET_PACKAGE)].chart == "oci://ghcr.io/bartlapp/bartl-restic")' "$VALUES" >/dev/null
 yq -i '
   .deployments[strenv(DEPLOYMENT)] = {
     "instance": strenv(INSTANCE), "cluster": strenv(TARGET_CLUSTER),
     "namespace": strenv(TARGET_NAMESPACE), "release": "backup", "package": strenv(TARGET_PACKAGE)
   } |
-  .packages[strenv(TARGET_PACKAGE)] = {
+  .packages[strenv(TARGET_PACKAGE)] = (.packages[strenv(TARGET_PACKAGE)] // {
     "version": strenv(TARGET_VERSION), "chart": "oci://ghcr.io/bartlapp/bartl-restic"
-  } |
+  }) |
   .operations.deployments[strenv(DEPLOYMENT)] = {"replicas": 1, "ingressEnabled": true} |
   (.services[strenv(INSTANCE)].replication[]?.suspend) = true
 ' "$VALUES"
