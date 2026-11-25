@@ -11,7 +11,7 @@ New endpoint: follow the recipe below. Existing endpoint: [resume access](#resum
 - [Stop and start](#stop-and-start)
 - [Add a repository](#add-a-repository) and [connect an application](#connect-an-application)
 - [Replicate](#scheduled-replication), [recover files](#recover-from-the-secondary) or [replace the endpoint](#replace-an-endpoint-on-fresh-storage)
-- [Migrate configuration](#migrate-flat-021-inputs-to-031), [remove/reinstall](#supported-uninstall) and [maintain repositories](#native-maintenance)
+- [Remove/reinstall](#supported-uninstall) and [maintain repositories](#native-maintenance)
 
 ## Prerequisites and release
 
@@ -250,6 +250,7 @@ On that client, execute:
   restic --cacert "$directory/ca.crt" snapshots "$snapshot"
   restic --cacert "$directory/ca.crt" restore "$snapshot" --target "$work/restored"
   cmp "$work/input" "$work/restored${work}/input"
+  rm -r "$work"
 )
 ```
 
@@ -280,11 +281,28 @@ In direnv-hooked Bash, enter the actual retained deployment directory. A replace
 cd "${WORK_DIR_ROOT:-$HOME/bartl}/acme/acme-installation/clusters/cluster-1/applications/restic"
 ```
 
-At the next prompt, reacquire the recorded package only if its cache is absent, then load operation settings. This creates no credentials, claims or cluster resources. Restore protected files from their independent custody before operations that need them.
+At the next prompt, the selector has loaded the retained deployment and cluster access. It does not acquire a chart or render package declarations.
 
 ```bash
 set -euo pipefail
 umask 077
+```
+
+### Inspect an installed endpoint
+
+After loading context, inspect the live application when it is expected to exist. This needs cluster access, not the package chart:
+
+```bash
+kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o yaml
+```
+
+A missing resource during ordinary operation is an error, not permission to initialize or reinstall it. For deliberate retained-state reinstall, continue at [Reinstall retained state](#reinstall-retained-state) without this inspection.
+
+### Prepare chart-backed operations
+
+After [loading retained context](#load-retained-context), reacquire the recorded package only if its cache is absent, then refresh its connection declarations. Run this preparation for the selected deployment before the Helm/declaration operations below; it creates no credentials, claims or cluster resources. Restore protected files from independent custody only for operations that need them.
+
+```bash
 if [ ! -d "$CHART" ]; then
   mkdir -p "$WORK_DIR/packages/$PACKAGE"
   CHART_STAGE=$(mktemp -d "$WORK_DIR/packages/.restic.XXXXXX")
@@ -300,21 +318,13 @@ TLS_SECRET=$(yq -er '.credentials.bindings[strenv(INSTANCE)].tls.secretName' "$I
 CLAIM=$(yq -er '.storage.claims[strenv(INSTANCE)].repository.claimName' "$INSTALL_DIR/restic-connections.yaml")
 ```
 
-The selected 0.3.1 candidate chart resolves the retained deployment, checks its namespace, release and package version against Helm, and applies only its recorded operation intent to the selected service. This also keeps connection declarations aligned with runtime, including explicit false/zero. Direct `instance` selection remains available for standalone values without a deployment record. Resume the selected deployment after switching directories; package-local declaration files are refreshed here, not by the context loader.
+The selected 0.3.1 candidate chart resolves the retained deployment, checks its namespace, release and package version against Helm, and applies only its recorded operation intent to the selected service. This also keeps connection declarations aligned with runtime, including explicit false/zero. Direct `instance` selection remains available for standalone values without a deployment record. Repeat this preparation after switching deployments; package-local declaration files are refreshed here, not by the context loader.
 
-### Inspect an installed endpoint
-
-After loading context, inspect the live application when it is expected to exist:
-
-```bash
-kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o yaml
-```
-
-For retained-state reinstall, skip this inspection and continue at [Reinstall retained state](#reinstall-retained-state). A missing resource during ordinary operation is still an error, not permission to initialize or reinstall it.
+Continue with the selected operation.
 
 ## Stop and start
 
-After resumption, export needed lifecycle/copy logs before stopping: cancellation deletes Jobs and their Pods. Keep other operators/reconcilers from changing intent during the operation.
+First [prepare chart-backed operations](#prepare-chart-backed-operations). Export needed lifecycle/copy logs before stopping: cancellation deletes Jobs and their Pods. Keep other operators/reconcilers from changing intent during the operation.
 
 ```bash
 yq -i '.operations.deployments[strenv(DEPLOYMENT)].replicas = 0' "$VALUES"
@@ -341,11 +351,11 @@ kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -
     any(.status.conditions[]; .type == "Ready" and .status == "True" and .observedGeneration == $g)'
 ```
 
-The controller observes and checks retained repositories again. Verify old-point restore and new backup. Ordinary process/controller restart while running uses retained state without reinitializing it or consulting recovery sources.
+The controller observes and checks retained repositories again. Ordinary process/controller restart while running uses retained state without reinitializing it or consulting recovery sources.
 
 ## Add a repository
 
-Starting condition: a healthy resumed endpoint, no admitted work that must finish uninterrupted, and an unused repository name. Do not remove existing declarations: undeclared local history refuses re-admission, even for an otherwise idle endpoint.
+Starting condition: a healthy endpoint with [chart-backed operations prepared](#prepare-chart-backed-operations), no admitted work that must finish uninterrupted, and an unused repository name. Do not remove existing declarations: undeclared local history refuses re-admission, even for an otherwise idle endpoint.
 
 If the endpoint was idle, supply the validating CA bundle at `"$INSTALL_DIR/protected/ca.crt"` before running the commands below.
 
@@ -356,8 +366,6 @@ helm template "$RELEASE" "$CHART" -n "$NS" -f "$VALUES" \
   --set-string deployment="$DEPLOYMENT" --set-string renderMode=connections \
   --show-only templates/connections.yaml > "$INSTALL_DIR/restic-connections.yaml"
 RESTIC_HOST=$(yq -er '.services[strenv(INSTANCE)].endpoints.https.hostname' "$INSTALL_DIR/restic-connections.yaml")
-TLS_SECRET=$(yq -er '.credentials.bindings[strenv(INSTANCE)].tls.secretName' "$INSTALL_DIR/restic-connections.yaml")
-CLAIM=$(yq -er '.storage.claims[strenv(INSTANCE)].repository.claimName' "$INSTALL_DIR/restic-connections.yaml")
 directory="$INSTALL_DIR/protected/repositories/$REPOSITORY"
 mkdir -p "$directory"
 (
@@ -369,7 +377,6 @@ mkdir -p "$directory"
     printf '%s:%s\n' "$role" "$(openssl passwd -apr1 -stdin < "$directory/$role.restPassword")"
   done > "$directory/htpasswd"
 )
-directory="$INSTALL_DIR/protected/repositories/$REPOSITORY"
 AUTH=$(yq -er '.backup.providers[strenv(INSTANCE)].repositories[strenv(REPOSITORY)].authSecret' "$INSTALL_DIR/restic-connections.yaml")
 KEY=$(yq -er '.backup.providers[strenv(INSTANCE)].repositories[strenv(REPOSITORY)].passwordSecret' "$INSTALL_DIR/restic-connections.yaml")
 ADMIN=$(yq -er '.backup.providers[strenv(INSTANCE)].repositories[strenv(REPOSITORY)].adminSecret' "$INSTALL_DIR/restic-connections.yaml")
@@ -393,15 +400,16 @@ Retain new credentials independently before enabling consumers. Native admission
 
 Use one declared repository per logical application. The [Keycloak](https://github.com/bartlapp/bartl-keycloak/blob/main/README.md) and [Paperless](https://github.com/bartlapp/bartl-paperless/blob/main/README.md) recipes own their installation, identity setup, capture and reconstruction. Follow the instructions applicable to each selected release.
 
-With Restic resumed, choose the already declared repository and the consumer's actual working directory. Export only scoped files in the layout consumed by those recipes; the destination reader/writer directories must be new:
+First [prepare chart-backed operations](#prepare-chart-backed-operations) for Restic, then choose the already declared repository and the consumer's actual working directory. Export only scoped files in the layout consumed by those recipes; the destination reader/writer directories must be new:
 
 ```bash
 export REPOSITORY=paperless
 export CONSUMER_DIR="$WORK_DIR/clusters/cluster-1/applications/paperless"
 REPOSITORY_URL=$(yq -er '.backup.providers[strenv(INSTANCE)].repositories[strenv(REPOSITORY)].repository' "$INSTALL_DIR/restic-connections.yaml")
 printf '%s\n' "$REPOSITORY_URL"
+mkdir -p "$CONSUMER_DIR/repository"
 for role in reader writer; do
-  mkdir -p "$CONSUMER_DIR/repository/$role"
+  mkdir "$CONSUMER_DIR/repository/$role"
   printf '%s' "$role" > "$CONSUMER_DIR/repository/$role/username"
   cp "$INSTALL_DIR/protected/repositories/$REPOSITORY/$role.restPassword" "$CONSUMER_DIR/repository/$role/restPassword"
   cp "$INSTALL_DIR/protected/repositories/$REPOSITORY/password" "$CONSUMER_DIR/repository/$role/password"
@@ -409,7 +417,7 @@ for role in reader writer; do
 done
 ```
 
-Supply that declaration's URL as the consumer's direct backup.repository input and follow its runtime-Secret and backup procedure. This avoids duplicating consumer provisioning here. For an existing composed backup.endpoint binding, preserve it and refresh resolved.backup.bindings.<consumer> from the provider URL and consumer-declared readerSecret/writerSecret instead; do not mix contradictory destinations. Connection rendering never creates a repository or establishes protection.
+Supply that declaration's URL as the consumer's `backup.repository` input and follow its runtime-Secret and backup procedure. The consumer owns capture and reconstruction; this handoff creates neither an application backup nor a new repository.
 
 <a id="replication-mechanism"></a>
 
@@ -417,7 +425,7 @@ Supply that declaration's URL as the consumer's direct backup.repository input a
 
 Starting condition: both endpoints are usable, with independent storage, credentials and TLS. For a new secondary, its repository recovery declaration selects the primary and primary reader credentials; automatic initialization copies chunker parameters and history into its own independent key. Once established, intact secondary startup needs no primary access. Never initialize an existing secondary manually.
 
-On the resumed primary, choose an unused copy name, local repository, secondary host/repository and independently recovered destination input directory. The directory contains username (exactly writer), restPassword, password and ca.crt for the secondary. Keep secondary reader access independently too.
+On the primary, first [prepare chart-backed operations](#prepare-chart-backed-operations), then choose an unused copy name, local repository, secondary host/repository and independently recovered destination input directory. The directory contains username (exactly writer), restPassword, password and ca.crt for the secondary. Keep secondary reader access independently too.
 
 ```bash
 export COPY=secondary
@@ -490,7 +498,7 @@ For application recovery, use the consumer's reconstruction procedure and verify
 
 Starting condition: independently retained configuration, original primary credentials and a verified usable secondary for every declared repository. Supply a target cluster, fresh namespace/claim and capacity. Authorize interruption, accepted loss, final-write handling and retirement first. A second namespace on the same host is not provider-loss protection. Acquire the target package before interrupting the source; use its supported native transition, not an assumed downgrade path.
 
-For a reachable source, resume it, stop consumer publication and finish/verify final secondary copies before the endpoint stop. Preserve logs and confirm current-generation drainage. For a lost source, enforce retirement independently, including a returning predecessor; unreachability and DNS changes do not fence it. If retirement cannot be established, do not activate the target.
+For a reachable source, [prepare its chart-backed operations](#prepare-chart-backed-operations), stop consumer publication and finish/verify final secondary copies before the endpoint stop. Preserve logs and confirm current-generation drainage. For a lost source, enforce retirement independently, including a returning predecessor; unreachability and DNS changes do not fence it. If retirement cannot be established, do not activate the target.
 
 Select a new package key and acquire the latest stable release while the source remains selected:
 
@@ -709,37 +717,9 @@ Verify the restored schedules and suspension settings, then remove the temporary
 
 Failed or interrupted native work leaves the target failed across restart/stop/start. Retain diagnostics, then retry ordinary reconstruction on another independent empty claim. Never clear markers/status, steal a PVC binding, disable locks or blindly unlock. Intact repositories take metadata verification without contacting recovery; absent local state selects recovery, and failed lookup/integrity never means empty history. Native backend retries can run for 15 minutes per operation; client timeout does not cancel them.
 
-## Migrate flat 0.2.1 inputs to 0.3.1
-
-Retain the original flat values, exact chart/image, credentials and repository identities. Preserve release/namespace, PVC, all explicit Secret names and external TLS ownership. This is an explicit configuration migration, not --reuse-values or a compatibility shim.
-
-In the installation record, move application.replicas to services.<instance>.replicas; move existingClaim, tlsSecret, repositories, replication and maintenance under that service. Set release to the selected chart version if retaining the version assertion. Set tls.managed: false for external certificates and ingress.enabled: false when retaining an external TLS-preserving route. Retire old image overrides. Register the selected package reference in `packages` and select it in the retained deployment, then use [Resume an existing deployment](#resume-an-existing-deployment) to acquire it. Compare rendered URLs, claims and Secret bindings against the old installation before applying anything.
-
-With the migrated target selected:
-
-```bash
-helm template "$RELEASE" "$CHART" -n "$NS" -f "$VALUES" \
-  --set-string deployment="$DEPLOYMENT" --set-string renderMode=connections \
-  --show-only templates/connections.yaml > "$INSTALL_DIR/restic-connections.yaml"
-RESTIC_HOST=$(yq -er '.services[strenv(INSTANCE)].endpoints.https.hostname' "$INSTALL_DIR/restic-connections.yaml")
-TLS_SECRET=$(yq -er '.credentials.bindings[strenv(INSTANCE)].tls.secretName' "$INSTALL_DIR/restic-connections.yaml")
-CLAIM=$(yq -er '.storage.claims[strenv(INSTANCE)].repository.claimName' "$INSTALL_DIR/restic-connections.yaml")
-kubectl --context "$KUBE_CONTEXT" apply -f <(helm show crds "$CHART")
-helm upgrade "$RELEASE" "$CHART" --kube-context "$KUBE_CONTEXT" -n "$NS" --reset-values -f "$VALUES" \
-  --set-string deployment="$DEPLOYMENT" --wait=legacy --timeout=5m
-kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic --for=condition=Ready --timeout=30m
-kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o json | \
-  jq -e '.metadata.generation as $g | .status.observedGeneration == $g and
-    any(.status.conditions[]; .type == "Ready" and .status == "True" and .observedGeneration == $g)'
-```
-
-Helm installs a missing CRD but does not upgrade an existing one; review compatibility with other installations before applying it. Require unchanged repository identity/history, an older-point restore and a new backup. Never run another controller against the same claim. For the former endpoint-only chart, add each repository's passwordSecret first; Helm removes old endpoint resources and the controller recreates them after admission, with interruption.
-
-Historical **0.2.0 must upgrade to 0.2.1 before application deletion**, using its [matching release procedure](https://github.com/bartlapp/bartl-restic/blob/v0.2.1/README.md#supported-uninstall) and retained flat file. The fixed controller must finalize the application while alive; a later upgrade cannot repair an already orphaned binding. Do not bypass finalizers or clear ownership annotations.
-
 ## Supported uninstall
 
-Starting condition: resumed deployment, retained configuration/credentials/history, authorized removal and no concurrent intent writer. Export required logs first. Stop, verify drainage, delete the application while its controller is alive, then uninstall Helm:
+Starting condition: [chart-backed operations prepared](#prepare-chart-backed-operations), retained configuration/credentials/history, authorized removal and no concurrent intent writer. Stop consumer publication and finish required replication before draining the endpoint. Export required logs first. Delete the application while its controller is alive, then uninstall Helm:
 
 ```bash
 yq -i '.operations.deployments[strenv(DEPLOYMENT)].replicas = 0' "$VALUES"
@@ -765,7 +745,7 @@ Finalization releases only this application's claim binding after confirmed drai
 
 ### Reinstall retained state
 
-Only after successful finalization/uninstall, with the same intact claim/configuration/Secrets and no failed markers or competing owner. In a fresh shell, first [load retained context](#load-retained-context) for this deployment; do not run **Inspect an installed endpoint**, since its application resource has deliberately been removed. Then reinstall:
+Only after successful finalization/uninstall, with the same intact claim/configuration/Secrets and no failed markers or competing owner. First [prepare chart-backed operations](#prepare-chart-backed-operations) for this deployment; do not run **Inspect an installed endpoint**, since its application resource has deliberately been removed. Then reinstall:
 
 ```bash
 yq -i '.operations.deployments[strenv(DEPLOYMENT)].replicas = 1' "$VALUES"
@@ -781,7 +761,9 @@ Require unchanged repository identity/history, an old-point restore and a new ba
 
 ## Native maintenance
 
-Resume the endpoint and select one declared repository. Pause conflicting consumer/copy work without stopping the endpoint; maintenance needs its HTTPS service. Choose a unique invocation name. The Job takes native exclusive locks and performs full check --read-data; it never unlocks or initializes implicitly:
+### Check repository integrity
+
+First [prepare chart-backed operations](#prepare-chart-backed-operations) and select one declared repository. Pause conflicting consumer/copy work without stopping the endpoint; maintenance needs its HTTPS service. Choose a unique invocation name. The Job takes native exclusive locks and performs full check --read-data; it never unlocks or initializes implicitly:
 
 ```bash
 export REPOSITORY=records
@@ -801,7 +783,33 @@ kubectl --context "$KUBE_CONTEXT" -n "$NS" wait "job/backup-restic-$MAINTENANCE"
 kubectl --context "$KUBE_CONTEXT" -n "$NS" logs "job/backup-restic-$MAINTENANCE"
 ```
 
-The hostname must be reachable from the Job and covered by its validating CA. Keep admin credentials separate. For authorized deletion, inspect the complete selected point and applicable holds/retention first. Set FULL_SNAPSHOT_ID to its full 64-character ID, use a fresh name, action forget-prune and add --set-string "services.$HELM_INSTANCE.maintenance.snapshot=$FULL_SNAPSHOT_ID" to the same Job command. Retain Job/logs; a failed Job is not permission for blind replay or unlock. The package neither chooses retention points nor schedules deletion; primary and secondary policies remain independent.
+The hostname must be reachable from the Job and covered by its validating CA. Keep admin credentials separate. Inspect the native result and retain diagnostics while investigating a failed Job; failure is not permission for blind replay or unlock. Resume paused publication/copies after successful maintenance.
+
+### Delete an authorized recovery point
+
+Starting condition: [chart-backed operations prepared](#prepare-chart-backed-operations), a selected full snapshot ID, and deletion authorized against that repository's retention and holds. Pause conflicting consumer/copy work without stopping the endpoint. Primary and secondary retention are independent; this operation does not delete the corresponding secondary point or prevent a later copy from recreating it.
+
+```bash
+export REPOSITORY=records
+export FULL_SNAPSHOT_ID=REPLACE_WITH_SELECTED_64_CHARACTER_ID
+MAINTENANCE="forget-$(date -u +%Y%m%d%H%M%S)"
+HELM_INSTANCE=${INSTANCE//./\\.}
+ADMIN=$(yq -er '.backup.providers[strenv(INSTANCE)].repositories[strenv(REPOSITORY)].adminSecret' "$INSTALL_DIR/restic-connections.yaml")
+helm template "$RELEASE" "$CHART" -n "$NS" -f "$VALUES" \
+  --set-string deployment="$DEPLOYMENT" \
+  --set "services.$HELM_INSTANCE.maintenance.enabled=true" \
+  --set-string "services.$HELM_INSTANCE.maintenance.name=$MAINTENANCE" \
+  --set-string "services.$HELM_INSTANCE.maintenance.repository=$REPOSITORY" \
+  --set "services.$HELM_INSTANCE.maintenance.action=forget-prune" \
+  --set-string "services.$HELM_INSTANCE.maintenance.snapshot=$FULL_SNAPSHOT_ID" \
+  --set-string "services.$HELM_INSTANCE.maintenance.host=$RESTIC_HOST" \
+  --set-string "services.$HELM_INSTANCE.maintenance.credentialsSecret=$ADMIN" \
+  --show-only templates/maintenance.yaml | kubectl --context "$KUBE_CONTEXT" -n "$NS" create -f -
+kubectl --context "$KUBE_CONTEXT" -n "$NS" wait "job/backup-restic-$MAINTENANCE" --for=condition=complete --timeout=30m
+kubectl --context "$KUBE_CONTEXT" -n "$NS" logs "job/backup-restic-$MAINTENANCE"
+```
+
+Require successful native forget/prune before resuming paused work. The package neither selects retention points nor schedules deletion; a failed Job requires inspection, not blind replay or unlock.
 
 ## Helm inputs and connections
 
@@ -857,7 +865,7 @@ Each runner creates a namespace, finalizes stopped applications before uninstall
 
 Output defaults to an external private temporary directory. `BARTL_RESTIC_EVIDENCE_DIR` selects another external path; checkout paths and symlink aliases are rejected. `raw.json` holds redacted diagnostics; `qualification.json` holds selected results and source provenance. Provenance records run-start HEAD, dirty state and hashes of implementation, build and test files; a dirty run qualifies those bytes, not HEAD alone. Keep raw artifacts outside Git and put exact artifacts, concise results, limits and cleanup/budget outcome in the release/integration record. Do not add session reports.
 
-For exact 0.3.0 uninstall/reinstall and 0.2.1 migration qualification, retain the verified 0.3.0 archive and use:
+Historical 0.2.x-to-0.3.0 migration and uninstall qualification belongs to the [0.3.0 operating procedure](https://github.com/bartlapp/bartl-restic/blob/v0.3.0/README.md), not the current candidate's installation path. For reproduction, retain the verified 0.3.0 archive and use:
 
 ```bash
 export CHART=/retained/bartl-restic-0.3.0.tgz
@@ -872,6 +880,8 @@ BARTL_RESTIC_REUSE=1 BARTL_RESTIC_CHART="$CHART" BARTL_RESTIC_IMAGE="$IMAGE" \
 ```
 
 The 0.2.1 archive SHA-256 is `94293548ac5fd0a86976e4af0e678596a53c8d0144dad1983810cea64c9a4dfc`; its flat interface is not accepted by 0.3.0. Qualification must cover preserved repository identity/history, old-point restore, new backups, contender exclusion, stale-worker refusal, finalization, same-PVC reinstall and separate data destruction. Also exercise idle TLS/404, stop/start and first-repository admission against the exact 0.3.0 artifacts; native tests do not replace those cases.
+
+Historical **0.2.0 must upgrade to 0.2.1 before application deletion**, using its [matching release procedure](https://github.com/bartlapp/bartl-restic/blob/v0.2.1/README.md#supported-uninstall) and retained flat file. Its fixed controller must finalize the application while alive; upgrading later cannot repair an already orphaned binding. These historical requirements do not add a migration step to current installations.
 
 ## Release maintenance
 
