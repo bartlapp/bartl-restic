@@ -21,7 +21,7 @@ Start with its version-1 installation record, complete resource references and r
 
 The local **0.3.1 chart candidate** adds deployment selection; it is not yet published or live-qualified. The commands below require that interface, absent from published [0.3.0](https://github.com/bartlapp/bartl-restic/releases/tag/v0.3.0). The package uses rest-server 0.14.0, nginx 1.28.0 and Restic 0.19.1.
 
-Use direnv-hooked Bash. For an existing deployment missing its selector, follow [Base's adoption procedure](https://github.com/bartlapp/base-k3s/blob/main/README.md#adopt-a-missing-deployment-selector); refresh the root loader only if incompatible. An external cluster uses [supplied cluster access](https://github.com/bartlapp/base-k3s/blob/main/README.md#use-supplied-cluster-access); no Hetzner machine fields are needed.
+Use direnv-hooked Bash and the prepared cluster directory. For an external cluster, use the shared [supplied cluster access](https://github.com/bartlapp/bartl-app/blob/main/docs/operator-workstation.md#use-supplied-cluster-access) procedure; no Hetzner machine fields are needed.
 
 Select the prepared cluster directory:
 
@@ -274,7 +274,7 @@ Keep independently supplied recovery-reader and replication-writer input directo
 
 ### Load retained context
 
-In direnv-hooked Bash, enter the actual deployment directory. A replacement uses its nested `applications/<instance>/deployments/<deployment>` directory. For a deployment without a selector, first use Base's [one-time selector adoption](https://github.com/bartlapp/base-k3s/blob/main/README.md#adopt-a-missing-deployment-selector).
+In direnv-hooked Bash, enter the actual retained deployment directory. A replacement uses its nested `applications/<instance>/deployments/<deployment>` directory.
 
 ```bash
 cd "${WORK_DIR_ROOT:-$HOME/bartl}/acme/acme-installation/clusters/cluster-1/applications/restic"
