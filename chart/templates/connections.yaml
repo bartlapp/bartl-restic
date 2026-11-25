@@ -1,5 +1,6 @@
 {{- if eq .Values.renderMode "connections" }}
 {{- $service := include "restic.service" . | fromYaml }}
+{{- $instance := (include "restic.selection" . | fromYaml).instance }}
 {{- $repositories := dict }}
 {{- $bindings := dict "tls" (dict "secretName" $service.tlsSecret) "repositories" dict }}
 {{- $tlsSources := list "external" "recovered" }}
@@ -28,7 +29,7 @@
   {{- end }}
 {{- end }}
 services:
-  {{ .Values.instance | quote }}:
+  {{ $instance | quote }}:
     endpoints:
       https:
         url: {{ printf "https://%s" $service.hostname | quote }}
@@ -37,19 +38,19 @@ services:
         ingressEnabled: {{ $service.ingress.enabled }}
 backup:
   providers:
-    {{ .Values.instance | quote }}:
+    {{ $instance | quote }}:
       repositories:
         {{- toYaml $repositories | nindent 8 }}
 credentials:
   requirements:
-    {{ .Values.instance | quote }}:
+    {{ $instance | quote }}:
       {{- toYaml $requirements | nindent 6 }}
   bindings:
-    {{ .Values.instance | quote }}:
+    {{ $instance | quote }}:
       {{- toYaml $bindings | nindent 6 }}
 storage:
   claims:
-    {{ .Values.instance | quote }}:
+    {{ $instance | quote }}:
       repository:
         claimName: {{ $service.existingClaim | quote }}
         accessModes: [ReadWriteOnce]

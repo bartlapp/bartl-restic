@@ -11,7 +11,7 @@ New endpoint: follow the recipe below. Existing endpoint: [resume access](#resum
 - [Stop and start](#stop-and-start)
 - [Add a repository](#add-a-repository) and [connect an application](#connect-an-application)
 - [Replicate](#scheduled-replication), [recover files](#recover-from-the-secondary) or [replace the endpoint](#replace-an-endpoint-on-fresh-storage)
-- [Migrate configuration](#migrate-flat-021-inputs-to-030), [remove/reinstall](#supported-uninstall) and [maintain repositories](#native-maintenance)
+- [Migrate configuration](#migrate-flat-021-inputs-to-031), [remove/reinstall](#supported-uninstall) and [maintain repositories](#native-maintenance)
 
 ## Prerequisites and release
 
@@ -19,9 +19,9 @@ Use the [operator tools](https://github.com/bartlapp/bartl-app/blob/main/docs/op
 
 Start with its version-1 installation record, complete resource references and retained cluster access. Base or the cluster administrator supplies these; do not initialize another record or merely add a version field to an old one. No company tooling, password store or other Bartl service is required.
 
-This recipe uses published **0.3.0**, rest-server 0.14.0, nginx 1.28.0 and Restic 0.19.1. [Release evidence](https://github.com/bartlapp/bartl-restic/releases/tag/v0.3.0) identifies its immutable artifacts; this revised recipe has not renewed live qualification. The 0.2.x flat interface needs the explicit migration below. Do not pair this chart with an old controller image.
+The local **0.3.1 chart candidate** adds deployment selection; it is not yet published or live-qualified. The commands below require that interface, absent from published [0.3.0](https://github.com/bartlapp/bartl-restic/releases/tag/v0.3.0). The package uses rest-server 0.14.0, nginx 1.28.0 and Restic 0.19.1.
 
-Use direnv-hooked Bash. For an existing Base installation, [refresh its root context](https://github.com/bartlapp/base-k3s/blob/main/README.md#refresh-an-existing-installations-context) before adopting deployment selectors. An external cluster uses [supplied cluster access](https://github.com/bartlapp/base-k3s/blob/main/README.md#use-supplied-cluster-access); no Hetzner machine fields are needed.
+Use direnv-hooked Bash. For an existing deployment missing its selector, follow [Base's adoption procedure](https://github.com/bartlapp/base-k3s/blob/main/README.md#adopt-a-missing-deployment-selector); refresh the root loader only if incompatible. An external cluster uses [supplied cluster access](https://github.com/bartlapp/base-k3s/blob/main/README.md#use-supplied-cluster-access); no Hetzner machine fields are needed.
 
 Select the prepared cluster directory:
 
@@ -29,12 +29,11 @@ Select the prepared cluster directory:
 cd "${WORK_DIR_ROOT:-$HOME/bartl}/acme/acme-installation/clusters/cluster-1"
 ```
 
-At the next prompt, verify access and download the latest stable package. Helm excludes prereleases by default:
+Once a qualified release with this interface is published, acquire the latest stable chart. Helm excludes prereleases by default:
 
 ```bash
 set -euo pipefail
 umask 077
-kubectl --context "$KUBE_CONTEXT" get nodes,storageclass
 mkdir -p "$WORK_DIR/packages"
 CHART_STAGE=$(mktemp -d "$WORK_DIR/packages/.restic.XXXXXX")
 helm pull oci://ghcr.io/bartlapp/bartl-restic --untar --untardir "$CHART_STAGE"
@@ -92,11 +91,8 @@ For an idle endpoint, set the selected service's repositories to [] instead; ski
 Wait for the next prompt: the selector loads the recorded deployment and normalized `CHART` path. The grouped setup above records choices and enters their directory before direnv reloads. Render the package's nonsecret declarations:
 
 ```bash
-HELM_INSTANCE=${INSTANCE//./\\.}
-VERSION="$PACKAGE_VERSION"
 helm template "$RELEASE" "$CHART" -n "$NS" -f "$VALUES" \
-  --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
-  --set-string renderMode=connections \
+  --set-string deployment="$DEPLOYMENT" --set-string renderMode=connections \
   --show-only templates/connections.yaml > "$INSTALL_DIR/restic-connections.yaml"
 RESTIC_HOST=$(yq -er '.services[strenv(INSTANCE)].endpoints.https.hostname' "$INSTALL_DIR/restic-connections.yaml")
 TLS_SECRET=$(yq -er '.credentials.bindings[strenv(INSTANCE)].tls.secretName' "$INSTALL_DIR/restic-connections.yaml")
@@ -204,8 +200,7 @@ For an idle endpoint, no repository credentials or CA input are needed. For a po
 
 ```bash
 helm install "$RELEASE" "$CHART" --kube-context "$KUBE_CONTEXT" -n "$NS" -f "$VALUES" \
-  --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
-  --wait=legacy --timeout=5m
+  --set-string deployment="$DEPLOYMENT" --wait=legacy --timeout=5m
 if yq -e '.services[strenv(INSTANCE)].endpoints.https.tlsManaged' "$INSTALL_DIR/restic-connections.yaml" >/dev/null; then
   kubectl --context "$KUBE_CONTEXT" -n "$NS" wait "certificate/$TLS_SECRET" --for=condition=Ready --timeout=10m
 fi
@@ -297,20 +292,15 @@ if [ ! -d "$CHART" ]; then
   mv "$CHART_STAGE/bartl-restic" "$CHART"
   rm -r "$CHART_STAGE"
 fi
-VERSION="$PACKAGE_VERSION"
-HELM_INSTANCE=${INSTANCE//./\\.}
-REPLICAS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].replicas, .services[strenv(INSTANCE)].replicas, 1] | map(select(. != null)) | .[0]' "$VALUES")
-INGRESS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].ingressEnabled, .services[strenv(INSTANCE)].ingress.enabled, true] | map(select(. != null)) | .[0]' "$VALUES")
 helm template "$RELEASE" "$CHART" -n "$NS" -f "$VALUES" \
-  --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
-  --set "services.$HELM_INSTANCE.ingress.enabled=$INGRESS" --set-string renderMode=connections \
+  --set-string deployment="$DEPLOYMENT" --set-string renderMode=connections \
   --show-only templates/connections.yaml > "$INSTALL_DIR/restic-connections.yaml"
 RESTIC_HOST=$(yq -er '.services[strenv(INSTANCE)].endpoints.https.hostname' "$INSTALL_DIR/restic-connections.yaml")
 TLS_SECRET=$(yq -er '.credentials.bindings[strenv(INSTANCE)].tls.secretName' "$INSTALL_DIR/restic-connections.yaml")
 CLAIM=$(yq -er '.storage.claims[strenv(INSTANCE)].repository.claimName' "$INSTALL_DIR/restic-connections.yaml")
 ```
 
-The published 0.3.0 chart consumes `instance`, not `deployment`. Directory selection supplies its inputs; the commands still project the two retained operation intents as Helm overrides. Explicit false/zero remain effective. Always resume the selected deployment after switching directories; package-local variables and declaration files are refreshed here, not by the context loader.
+The selected 0.3.1 candidate chart resolves the retained deployment, checks its namespace, release and package version against Helm, and applies only its recorded operation intent to the selected service. This also keeps connection declarations aligned with runtime, including explicit false/zero. Direct `instance` selection remains available for standalone values without a deployment record. Resume the selected deployment after switching directories; package-local declaration files are refreshed here, not by the context loader.
 
 ### Inspect an installed endpoint
 
@@ -328,11 +318,8 @@ After resumption, export needed lifecycle/copy logs before stopping: cancellatio
 
 ```bash
 yq -i '.operations.deployments[strenv(DEPLOYMENT)].replicas = 0' "$VALUES"
-REPLICAS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].replicas, .services[strenv(INSTANCE)].replicas, 1] | map(select(. != null)) | .[0]' "$VALUES")
-INGRESS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].ingressEnabled, .services[strenv(INSTANCE)].ingress.enabled, true] | map(select(. != null)) | .[0]' "$VALUES")
 helm upgrade "$RELEASE" "$CHART" --kube-context "$KUBE_CONTEXT" -n "$NS" --reset-values -f "$VALUES" \
-  --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
-  --set "services.$HELM_INSTANCE.replicas=$REPLICAS" --set "services.$HELM_INSTANCE.ingress.enabled=$INGRESS" --wait=legacy --timeout=5m
+  --set-string deployment="$DEPLOYMENT" --wait=legacy --timeout=5m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic --for=condition=Stopped --timeout=30m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o json | \
   jq -e '.metadata.generation as $g | .status.observedGeneration == $g and
@@ -346,11 +333,8 @@ Start the same deployment again:
 
 ```bash
 yq -i '.operations.deployments[strenv(DEPLOYMENT)].replicas = 1' "$VALUES"
-REPLICAS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].replicas, .services[strenv(INSTANCE)].replicas, 1] | map(select(. != null)) | .[0]' "$VALUES")
-INGRESS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].ingressEnabled, .services[strenv(INSTANCE)].ingress.enabled, true] | map(select(. != null)) | .[0]' "$VALUES")
 helm upgrade "$RELEASE" "$CHART" --kube-context "$KUBE_CONTEXT" -n "$NS" --reset-values -f "$VALUES" \
-  --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
-  --set "services.$HELM_INSTANCE.replicas=$REPLICAS" --set "services.$HELM_INSTANCE.ingress.enabled=$INGRESS" --wait=legacy --timeout=5m
+  --set-string deployment="$DEPLOYMENT" --wait=legacy --timeout=5m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic --for=condition=Ready --timeout=30m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o json | \
   jq -e '.metadata.generation as $g | .status.observedGeneration == $g and
@@ -368,11 +352,8 @@ If the endpoint was idle, supply the validating CA bundle at `"$INSTALL_DIR/prot
 ```bash
 export REPOSITORY=paperless
 yq -i '.services[strenv(INSTANCE)].repositories += [{"name": strenv(REPOSITORY)}]' "$VALUES"
-REPLICAS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].replicas, .services[strenv(INSTANCE)].replicas, 1] | map(select(. != null)) | .[0]' "$VALUES")
-INGRESS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].ingressEnabled, .services[strenv(INSTANCE)].ingress.enabled, true] | map(select(. != null)) | .[0]' "$VALUES")
 helm template "$RELEASE" "$CHART" -n "$NS" -f "$VALUES" \
-  --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
-  --set "services.$HELM_INSTANCE.ingress.enabled=$INGRESS" --set-string renderMode=connections \
+  --set-string deployment="$DEPLOYMENT" --set-string renderMode=connections \
   --show-only templates/connections.yaml > "$INSTALL_DIR/restic-connections.yaml"
 RESTIC_HOST=$(yq -er '.services[strenv(INSTANCE)].endpoints.https.hostname' "$INSTALL_DIR/restic-connections.yaml")
 TLS_SECRET=$(yq -er '.credentials.bindings[strenv(INSTANCE)].tls.secretName' "$INSTALL_DIR/restic-connections.yaml")
@@ -399,8 +380,7 @@ kubectl --context "$KUBE_CONTEXT" -n "$NS" create secret generic "$ADMIN" \
   --from-file=username="$directory/admin.username" --from-file=restPassword="$directory/admin.restPassword" \
   --from-file=password="$directory/password" --from-file=ca.crt="$INSTALL_DIR/protected/ca.crt"
 helm upgrade "$RELEASE" "$CHART" --kube-context "$KUBE_CONTEXT" -n "$NS" --reset-values -f "$VALUES" \
-  --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
-  --set "services.$HELM_INSTANCE.replicas=$REPLICAS" --set "services.$HELM_INSTANCE.ingress.enabled=$INGRESS" --wait=legacy --timeout=5m
+  --set-string deployment="$DEPLOYMENT" --wait=legacy --timeout=5m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic --for=condition=Ready --timeout=30m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o json | \
   jq -e '.metadata.generation as $g | .status.observedGeneration == $g and
@@ -455,11 +435,8 @@ yq -i '.services[strenv(INSTANCE)].replication += [{
   "schedule": strenv(COPY_SCHEDULE), "timeZone": "Etc/UTC", "suspend": false, "activeDeadlineSeconds": 3600
 }]' "$VALUES"
 kubectl --context "$KUBE_CONTEXT" -n "$NS" create secret generic "$COPY_SECRET" --from-file="$SECONDARY_INPUTS/"
-REPLICAS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].replicas, .services[strenv(INSTANCE)].replicas, 1] | map(select(. != null)) | .[0]' "$VALUES")
-INGRESS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].ingressEnabled, .services[strenv(INSTANCE)].ingress.enabled, true] | map(select(. != null)) | .[0]' "$VALUES")
 helm upgrade "$RELEASE" "$CHART" --kube-context "$KUBE_CONTEXT" -n "$NS" --reset-values -f "$VALUES" \
-  --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
-  --set "services.$HELM_INSTANCE.replicas=$REPLICAS" --set "services.$HELM_INSTANCE.ingress.enabled=$INGRESS" --wait=legacy --timeout=5m
+  --set-string deployment="$DEPLOYMENT" --wait=legacy --timeout=5m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic --for=condition=Ready --timeout=30m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o json | \
   jq -e '.metadata.generation as $g | .status.observedGeneration == $g and
@@ -515,7 +492,7 @@ Starting condition: independently retained configuration, original primary crede
 
 For a reachable source, resume it, stop consumer publication and finish/verify final secondary copies before the endpoint stop. Preserve logs and confirm current-generation drainage. For a lost source, enforce retirement independently, including a returning predecessor; unreachability and DNS changes do not fence it. If retirement cannot be established, do not activate the target.
 
-Select a new package key and acquire its latest stable release while the source remains selected:
+Select a new package key and acquire the latest stable release while the source remains selected:
 
 ```bash
 export TARGET_PACKAGE=restic-replacement
@@ -537,11 +514,8 @@ yq -i '
   .operations.deployments[strenv(DEPLOYMENT)].replicas = 0 |
   .operations.deployments[strenv(DEPLOYMENT)].ingressEnabled = false
 ' "$VALUES"
-REPLICAS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].replicas, .services[strenv(INSTANCE)].replicas, 1] | map(select(. != null)) | .[0]' "$VALUES")
-INGRESS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].ingressEnabled, .services[strenv(INSTANCE)].ingress.enabled, true] | map(select(. != null)) | .[0]' "$VALUES")
 helm upgrade "$RELEASE" "$CHART" --kube-context "$KUBE_CONTEXT" -n "$NS" --reset-values -f "$VALUES" \
-  --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
-  --set "services.$HELM_INSTANCE.replicas=$REPLICAS" --set "services.$HELM_INSTANCE.ingress.enabled=$INGRESS" --wait=legacy --timeout=5m
+  --set-string deployment="$DEPLOYMENT" --wait=legacy --timeout=5m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" wait ingressroutetcp/backup-restic \
   --for=delete --timeout=5m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic --for=condition=Stopped --timeout=30m
@@ -635,13 +609,8 @@ cd "$TARGET_DIR"
 At the next prompt, the replacement is selected. Keep `SOURCE_DIR`, `SECONDARY_INPUTS` and `CAPACITY` in this shell; do not rerun creation on a partially prepared target. The temporary replication file belongs to this replacement operation and stays in the independently retained source-input directory. A retry on another empty target reuses it rather than capturing already suspended settings. In a fresh shell, select the same `SOURCE_DIR` before restoring replication.
 
 ```bash
-VERSION="$PACKAGE_VERSION"
-HELM_INSTANCE=${INSTANCE//./\\.}
-REPLICAS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].replicas, .services[strenv(INSTANCE)].replicas, 1] | map(select(. != null)) | .[0]' "$VALUES")
-INGRESS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].ingressEnabled, .services[strenv(INSTANCE)].ingress.enabled, true] | map(select(. != null)) | .[0]' "$VALUES")
 helm template "$RELEASE" "$CHART" -n "$NS" -f "$VALUES" \
-  --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
-  --set "services.$HELM_INSTANCE.ingress.enabled=$INGRESS" --set-string renderMode=connections \
+  --set-string deployment="$DEPLOYMENT" --set-string renderMode=connections \
   --show-only templates/connections.yaml > "$INSTALL_DIR/restic-connections.yaml"
 RESTIC_HOST=$(yq -er '.services[strenv(INSTANCE)].endpoints.https.hostname' "$INSTALL_DIR/restic-connections.yaml")
 TLS_SECRET=$(yq -er '.credentials.bindings[strenv(INSTANCE)].tls.secretName' "$INSTALL_DIR/restic-connections.yaml")
@@ -704,8 +673,7 @@ Require authoritative/public DNS and no conflicting AAAA before managed issuance
 
 ```bash
 helm install "$RELEASE" "$CHART" --kube-context "$KUBE_CONTEXT" -n "$NS" -f "$VALUES" \
-  --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
-  --set "services.$HELM_INSTANCE.replicas=$REPLICAS" --set "services.$HELM_INSTANCE.ingress.enabled=$INGRESS" --wait=legacy --timeout=5m
+  --set-string deployment="$DEPLOYMENT" --wait=legacy --timeout=5m
 if yq -e '.services[strenv(INSTANCE)].endpoints.https.tlsManaged' "$INSTALL_DIR/restic-connections.yaml" >/dev/null; then
   kubectl --context "$KUBE_CONTEXT" -n "$NS" wait "certificate/$TLS_SECRET" --for=condition=Ready --timeout=10m
 fi
@@ -728,11 +696,8 @@ export REPLICATION_BEFORE="$SOURCE_DIR/replication-before-replacement.yaml"
 yq -i 'load(strenv(REPLICATION_BEFORE)) as $before |
   del(.services[strenv(INSTANCE)].replication) |
   .services[strenv(INSTANCE)] = (.services[strenv(INSTANCE)] * $before)' "$VALUES"
-REPLICAS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].replicas, .services[strenv(INSTANCE)].replicas, 1] | map(select(. != null)) | .[0]' "$VALUES")
-INGRESS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].ingressEnabled, .services[strenv(INSTANCE)].ingress.enabled, true] | map(select(. != null)) | .[0]' "$VALUES")
 helm upgrade "$RELEASE" "$CHART" --kube-context "$KUBE_CONTEXT" -n "$NS" --reset-values -f "$VALUES" \
-  --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
-  --set "services.$HELM_INSTANCE.replicas=$REPLICAS" --set "services.$HELM_INSTANCE.ingress.enabled=$INGRESS" --wait=legacy --timeout=5m
+  --set-string deployment="$DEPLOYMENT" --wait=legacy --timeout=5m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic --for=condition=Ready --timeout=30m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o json |
   jq -e '.metadata.generation as $g | .status.observedGeneration == $g and
@@ -744,28 +709,24 @@ Verify the restored schedules and suspension settings, then remove the temporary
 
 Failed or interrupted native work leaves the target failed across restart/stop/start. Retain diagnostics, then retry ordinary reconstruction on another independent empty claim. Never clear markers/status, steal a PVC binding, disable locks or blindly unlock. Intact repositories take metadata verification without contacting recovery; absent local state selects recovery, and failed lookup/integrity never means empty history. Native backend retries can run for 15 minutes per operation; client timeout does not cancel them.
 
-## Migrate flat 0.2.1 inputs to 0.3.0
+## Migrate flat 0.2.1 inputs to 0.3.1
 
 Retain the original flat values, exact chart/image, credentials and repository identities. Preserve release/namespace, PVC, all explicit Secret names and external TLS ownership. This is an explicit configuration migration, not --reuse-values or a compatibility shim.
 
-In the installation record, move application.replicas to services.<instance>.replicas; move existingClaim, tlsSecret, repositories, replication and maintenance under that service. Set release to 0.3.0 if retaining the version assertion. Set tls.managed: false for external certificates and ingress.enabled: false when retaining an external TLS-preserving route. Retire old image overrides. Register the immutable 0.3.0 package reference in `packages` and select it in the retained deployment, then use [Resume an existing deployment](#resume-an-existing-deployment) to acquire it. Compare rendered URLs, claims and Secret bindings against the old installation before applying anything.
+In the installation record, move application.replicas to services.<instance>.replicas; move existingClaim, tlsSecret, repositories, replication and maintenance under that service. Set release to the selected chart version if retaining the version assertion. Set tls.managed: false for external certificates and ingress.enabled: false when retaining an external TLS-preserving route. Retire old image overrides. Register the selected package reference in `packages` and select it in the retained deployment, then use [Resume an existing deployment](#resume-an-existing-deployment) to acquire it. Compare rendered URLs, claims and Secret bindings against the old installation before applying anything.
 
 With the migrated target selected:
 
 ```bash
-REPLICAS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].replicas, .services[strenv(INSTANCE)].replicas, 1] | map(select(. != null)) | .[0]' "$VALUES")
-INGRESS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].ingressEnabled, .services[strenv(INSTANCE)].ingress.enabled, true] | map(select(. != null)) | .[0]' "$VALUES")
 helm template "$RELEASE" "$CHART" -n "$NS" -f "$VALUES" \
-  --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
-  --set "services.$HELM_INSTANCE.ingress.enabled=$INGRESS" --set-string renderMode=connections \
+  --set-string deployment="$DEPLOYMENT" --set-string renderMode=connections \
   --show-only templates/connections.yaml > "$INSTALL_DIR/restic-connections.yaml"
 RESTIC_HOST=$(yq -er '.services[strenv(INSTANCE)].endpoints.https.hostname' "$INSTALL_DIR/restic-connections.yaml")
 TLS_SECRET=$(yq -er '.credentials.bindings[strenv(INSTANCE)].tls.secretName' "$INSTALL_DIR/restic-connections.yaml")
 CLAIM=$(yq -er '.storage.claims[strenv(INSTANCE)].repository.claimName' "$INSTALL_DIR/restic-connections.yaml")
 kubectl --context "$KUBE_CONTEXT" apply -f <(helm show crds "$CHART")
 helm upgrade "$RELEASE" "$CHART" --kube-context "$KUBE_CONTEXT" -n "$NS" --reset-values -f "$VALUES" \
-  --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
-  --set "services.$HELM_INSTANCE.replicas=$REPLICAS" --set "services.$HELM_INSTANCE.ingress.enabled=$INGRESS" --wait=legacy --timeout=5m
+  --set-string deployment="$DEPLOYMENT" --wait=legacy --timeout=5m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic --for=condition=Ready --timeout=30m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o json | \
   jq -e '.metadata.generation as $g | .status.observedGeneration == $g and
@@ -782,11 +743,8 @@ Starting condition: resumed deployment, retained configuration/credentials/histo
 
 ```bash
 yq -i '.operations.deployments[strenv(DEPLOYMENT)].replicas = 0' "$VALUES"
-REPLICAS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].replicas, .services[strenv(INSTANCE)].replicas, 1] | map(select(. != null)) | .[0]' "$VALUES")
-INGRESS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].ingressEnabled, .services[strenv(INSTANCE)].ingress.enabled, true] | map(select(. != null)) | .[0]' "$VALUES")
 helm upgrade "$RELEASE" "$CHART" --kube-context "$KUBE_CONTEXT" -n "$NS" --reset-values -f "$VALUES" \
-  --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
-  --set "services.$HELM_INSTANCE.replicas=$REPLICAS" --set "services.$HELM_INSTANCE.ingress.enabled=$INGRESS" --wait=legacy --timeout=5m
+  --set-string deployment="$DEPLOYMENT" --wait=legacy --timeout=5m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic --for=condition=Stopped --timeout=30m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o json | \
   jq -e '.metadata.generation as $g | .status.observedGeneration == $g and
@@ -811,11 +769,8 @@ Only after successful finalization/uninstall, with the same intact claim/configu
 
 ```bash
 yq -i '.operations.deployments[strenv(DEPLOYMENT)].replicas = 1' "$VALUES"
-REPLICAS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].replicas, .services[strenv(INSTANCE)].replicas, 1] | map(select(. != null)) | .[0]' "$VALUES")
-INGRESS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].ingressEnabled, .services[strenv(INSTANCE)].ingress.enabled, true] | map(select(. != null)) | .[0]' "$VALUES")
 helm install "$RELEASE" "$CHART" --kube-context "$KUBE_CONTEXT" -n "$NS" -f "$VALUES" \
-  --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
-  --set "services.$HELM_INSTANCE.replicas=$REPLICAS" --set "services.$HELM_INSTANCE.ingress.enabled=$INGRESS" --wait=legacy --timeout=5m
+  --set-string deployment="$DEPLOYMENT" --wait=legacy --timeout=5m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic --for=condition=Ready --timeout=30m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o json | \
   jq -e '.metadata.generation as $g | .status.observedGeneration == $g and
@@ -831,9 +786,10 @@ Resume the endpoint and select one declared repository. Pause conflicting consum
 ```bash
 export REPOSITORY=records
 MAINTENANCE="check-$(date -u +%Y%m%d%H%M%S)"
+HELM_INSTANCE=${INSTANCE//./\\.}
 ADMIN=$(yq -er '.backup.providers[strenv(INSTANCE)].repositories[strenv(REPOSITORY)].adminSecret' "$INSTALL_DIR/restic-connections.yaml")
 helm template "$RELEASE" "$CHART" -n "$NS" -f "$VALUES" \
-  --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
+  --set-string deployment="$DEPLOYMENT" \
   --set "services.$HELM_INSTANCE.maintenance.enabled=true" \
   --set-string "services.$HELM_INSTANCE.maintenance.name=$MAINTENANCE" \
   --set-string "services.$HELM_INSTANCE.maintenance.repository=$REPOSITORY" \
@@ -849,7 +805,7 @@ The hostname must be reachable from the Job and covered by its validating CA. Ke
 
 ## Helm inputs and connections
 
-[interface.schema.json](chart/interface.schema.json) defines supported fields; [defaults.yaml](chart/defaults.yaml) supplies defaults. Omission restores defaults/derivation, maps merge by key, lists replace, and explicit false/zero remain effective. Unknown selected-service fields fail; unrelated services/resources remain untouched. Restic needs no resolved input.
+[interface.schema.json](chart/interface.schema.json) defines supported fields; [defaults.yaml](chart/defaults.yaml) supplies defaults. Selecting `deployment` reads `deployments.<deployment>` and `packages.<package>`, checks the Helm target and chart version, then applies only `operations.deployments.<deployment>.replicas` and `.ingressEnabled` over the selected service. Omission restores defaults/derivation, maps merge by key, lists replace, and explicit false/zero remain effective. Unknown selected-service fields fail; unrelated services/resources remain untouched. Restic needs no resolved input. Without a deployment record, `instance` selects the service directly and its `release` can assert the chart version.
 
 | Input under services.<instance> | Default or purpose |
 | --- | --- |
@@ -867,10 +823,8 @@ The hostname must be reachable from the Job and covered by its validating CA. Ke
 Render declarations offline with the verified chart:
 
 ```bash
-INGRESS=$(yq -r '[.operations.deployments[strenv(DEPLOYMENT)].ingressEnabled, .services[strenv(INSTANCE)].ingress.enabled, true] | map(select(. != null)) | .[0]' "$VALUES")
 helm template "$RELEASE" "$CHART" -n "$NS" -f "$VALUES" \
-  --set-string instance="$INSTANCE" --set-string "services.$HELM_INSTANCE.release=$VERSION" \
-  --set "services.$HELM_INSTANCE.ingress.enabled=$INGRESS" --set-string renderMode=connections \
+  --set-string deployment="$DEPLOYMENT" --set-string renderMode=connections \
   --show-only templates/connections.yaml > "$INSTALL_DIR/restic-connections.yaml"
 RESTIC_HOST=$(yq -er '.services[strenv(INSTANCE)].endpoints.https.hostname' "$INSTALL_DIR/restic-connections.yaml")
 TLS_SECRET=$(yq -er '.credentials.bindings[strenv(INSTANCE)].tls.secretName' "$INSTALL_DIR/restic-connections.yaml")
@@ -881,7 +835,7 @@ Declarations expose HTTPS endpoint flags/hostname, repository URLs and auth/key/
 
 ## Qualification and maintenance
 
-Exact-artifact evidence remains with the [0.3.0 release](https://github.com/bartlapp/bartl-restic/releases/tag/v0.3.0). Historical [replication](evidence/2026-11-02-replication.json), [Kubernetes](evidence/2026-11-02-kubernetes.json), [endpoint authorization](evidence/2026-11-02-endpoint.json) and [native copy](evidence/2026-11-02-restic-copy.json) scenarios used independent PVCs in one cluster, not a cross-provider outage. They do not qualify this rewritten operating sequence.
+Exact-artifact evidence remains with the [published 0.3.0 release](https://github.com/bartlapp/bartl-restic/releases/tag/v0.3.0); it does not qualify the local 0.3.1 chart candidate. Historical [replication](evidence/2026-11-02-replication.json), [Kubernetes](evidence/2026-11-02-kubernetes.json), [endpoint authorization](evidence/2026-11-02-endpoint.json) and [native copy](evidence/2026-11-02-restic-copy.json) scenarios used independent PVCs in one cluster, not a cross-provider outage. They do not qualify this rewritten operating sequence.
 
 ### Qualification and test output
 

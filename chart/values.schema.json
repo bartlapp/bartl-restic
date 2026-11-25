@@ -4,11 +4,10 @@
   "additionalProperties": true,
   "required": [
     "installation",
-    "instance",
     "renderMode",
     "services"
   ],
-  "$comment": "The selected services.<instance> is validated against interface.schema.json; unrelated service, resolved and infrastructure inputs are ignored.",
+  "$comment": "Selected deployment, package, operation intent and services.<instance> are validated against interface.schema.json; unrelated inputs are ignored.",
   "properties": {
     "installation": {
       "type": "string",
@@ -21,6 +20,11 @@
       "minLength": 1,
       "maxLength": 128,
       "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*$"
+    },
+    "deployment": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^$|^[a-zA-Z0-9][a-zA-Z0-9._-]*$"
     },
     "renderMode": {
       "type": "string",

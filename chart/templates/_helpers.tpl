@@ -39,14 +39,55 @@
 {{- end -}}
 {{- end -}}
 
+{{/* Select a deployment without changing the shared installation record. */}}
+{{- define "restic.selection" -}}
+{{- $instance := .Values.instance | default "restic" -}}
+{{- $intent := dict -}}
+{{- if .Values.deployment -}}
+  {{- $id := .Values.deployment -}}
+  {{- $definitions := (mustFromJson (.Files.Get "interface.schema.json")).definitions -}}
+  {{- if not (kindIs "map" .Values.deployments) -}}{{- fail "deployments must be an object when deployment is selected" -}}{{- end -}}
+  {{- if not (hasKey .Values.deployments $id) -}}{{- fail (printf "deployments.%s is required" $id) -}}{{- end -}}
+  {{- $deployment := index .Values.deployments $id -}}
+  {{- include "restic.validate" (dict "schema" $definitions.deployment "definitions" $definitions "value" $deployment "path" (printf "deployments.%s" $id)) -}}
+  {{- if and (hasKey .Values "instance") (ne .Values.instance $deployment.instance) -}}
+    {{- fail (printf "instance %s conflicts with deployments.%s.instance %s" .Values.instance $id $deployment.instance) -}}
+  {{- end -}}
+  {{- $instance = $deployment.instance -}}
+  {{- if ne $deployment.namespace .Release.Namespace -}}{{- fail (printf "deployments.%s.namespace %s does not match Helm namespace %s" $id $deployment.namespace .Release.Namespace) -}}{{- end -}}
+  {{- if ne $deployment.release .Release.Name -}}{{- fail (printf "deployments.%s.release %s does not match Helm release %s" $id $deployment.release .Release.Name) -}}{{- end -}}
+  {{- if not (hasKey .Values.services $instance) -}}{{- fail (printf "services.%s is required by deployments.%s.instance" $instance $id) -}}{{- end -}}
+  {{- if not (kindIs "map" .Values.packages) -}}{{- fail "packages must be an object when deployment is selected" -}}{{- end -}}
+  {{- if not (hasKey .Values.packages $deployment.package) -}}{{- fail (printf "packages.%s is required by deployments.%s.package" $deployment.package $id) -}}{{- end -}}
+  {{- $package := index .Values.packages $deployment.package -}}
+  {{- include "restic.validate" (dict "schema" $definitions.package "definitions" $definitions "value" $package "path" (printf "packages.%s" $deployment.package)) -}}
+  {{- if ne $package.version .Chart.Version -}}{{- fail (printf "packages.%s.version selects %s but this chart is %s" $deployment.package $package.version .Chart.Version) -}}{{- end -}}
+  {{- if hasKey .Values "operations" -}}
+    {{- if not (kindIs "map" .Values.operations) -}}{{- fail "operations must be an object" -}}{{- end -}}
+    {{- if hasKey .Values.operations "deployments" -}}
+      {{- if not (kindIs "map" .Values.operations.deployments) -}}{{- fail "operations.deployments must be an object" -}}{{- end -}}
+      {{- if hasKey .Values.operations.deployments $id -}}
+        {{- $intent = index .Values.operations.deployments $id -}}
+        {{- include "restic.validate" (dict "schema" $definitions.intent "definitions" $definitions "value" $intent "path" (printf "operations.deployments.%s" $id)) -}}
+      {{- end -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
+{{- toYaml (dict "instance" $instance "intent" $intent) -}}
+{{- end -}}
+
 {{- define "restic.service" -}}
+{{- $selection := include "restic.selection" . | fromYaml -}}
+{{- $instance := $selection.instance -}}
 {{- $selected := dict -}}
-{{- if hasKey .Values.services .Values.instance -}}{{- $selected = index .Values.services .Values.instance -}}{{- end -}}
+{{- if hasKey .Values.services $instance -}}{{- $selected = index .Values.services $instance -}}{{- end -}}
 {{- $definitions := (mustFromJson (.Files.Get "interface.schema.json")).definitions -}}
-{{- $path := printf "services.%s" .Values.instance -}}
+{{- $path := printf "services.%s" $instance -}}
 {{- include "restic.validate" (dict "schema" $definitions.service "definitions" $definitions "value" $selected "path" $path) -}}
 {{- if and (hasKey $selected "release") (ne $selected.release .Chart.Version) -}}{{- fail (printf "%s.release selects %s but this chart is %s" $path $selected.release .Chart.Version) -}}{{- end -}}
 {{- $service := mergeOverwrite (.Files.Get "defaults.yaml" | fromYaml) (deepCopy $selected) -}}
+{{- if hasKey $selection.intent "replicas" -}}{{- $_ := set $service "replicas" $selection.intent.replicas -}}{{- end -}}
+{{- if hasKey $selection.intent "ingressEnabled" -}}{{- $_ := set $service.ingress "enabled" $selection.intent.ingressEnabled -}}{{- end -}}
 {{- if not (hasKey $service "hostname") -}}
   {{- $domain := required "dns.root is required when the selected Restic service has no hostname" (get (get .Values "dns" | default dict) "root") -}}
   {{- $_ := set $service "hostname" (printf "restic.%s" $domain) -}}

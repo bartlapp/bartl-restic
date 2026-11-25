@@ -1,6 +1,31 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
   "definitions": {
+    "identity": {
+      "type": "string", "minLength": 1, "maxLength": 128,
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*$"
+    },
+    "deployment": {
+      "type": "object", "additionalProperties": true,
+      "required": ["instance", "namespace", "release", "package"],
+      "properties": {
+        "instance": {"$ref": "#/definitions/identity"},
+        "namespace": {"type": "string", "minLength": 1, "maxLength": 63, "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"},
+        "release": {"type": "string", "minLength": 1, "maxLength": 53, "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"},
+        "package": {"$ref": "#/definitions/identity"}
+      }
+    },
+    "package": {
+      "type": "object", "additionalProperties": true, "required": ["version"],
+      "properties": {"version": {"type": "string", "minLength": 1}}
+    },
+    "intent": {
+      "type": "object", "additionalProperties": true,
+      "properties": {
+        "replicas": {"type": "integer", "minimum": 0, "maximum": 1},
+        "ingressEnabled": {"type": "boolean"}
+      }
+    },
     "service": {
       "type": "object",
       "additionalProperties": false,
