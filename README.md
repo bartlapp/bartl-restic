@@ -19,7 +19,7 @@ Use the [operator tools](https://github.com/bartlapp/bartl-app/blob/main/docs/op
 
 Start with its version-1 installation record, complete resource references and retained cluster access. Base or the cluster administrator supplies these; do not initialize another record or merely add a version field to an old one. No company tooling, password store or other Bartl service is required.
 
-The local **0.3.1 chart candidate** adds deployment selection; it is not yet published or live-qualified. The commands below require that interface, absent from published [0.3.0](https://github.com/bartlapp/bartl-restic/releases/tag/v0.3.0). The package uses rest-server 0.14.0, nginx 1.28.0 and Restic 0.19.1.
+Release **[0.3.1](https://github.com/bartlapp/bartl-restic/releases/tag/v0.3.1)** adds deployment selection. The commands below require that interface, absent from [0.3.0](https://github.com/bartlapp/bartl-restic/releases/tag/v0.3.0). The package uses the unchanged rest-server 0.14.0, nginx 1.28.0 and Restic 0.19.1 runtime.
 
 Use direnv-hooked Bash and the prepared cluster directory. For an external cluster, use the shared [supplied cluster access](https://github.com/bartlapp/bartl-app/blob/main/docs/operator-workstation.md#use-supplied-cluster-access) procedure; no Hetzner machine fields are needed.
 
@@ -29,7 +29,7 @@ Select the prepared cluster directory:
 cd "${WORK_DIR_ROOT:-$HOME/bartl}/acme/acme-installation/clusters/cluster-1"
 ```
 
-Once a qualified release with this interface is published, acquire the latest stable chart. Helm excludes prereleases by default:
+Acquire the latest stable chart. Helm excludes prereleases by default:
 
 ```bash
 set -euo pipefail
@@ -318,7 +318,7 @@ TLS_SECRET=$(yq -er '.credentials.bindings[strenv(INSTANCE)].tls.secretName' "$I
 CLAIM=$(yq -er '.storage.claims[strenv(INSTANCE)].repository.claimName' "$INSTALL_DIR/restic-connections.yaml")
 ```
 
-The selected 0.3.1 candidate chart resolves the retained deployment, checks its namespace, release and package version against Helm, and applies only its recorded operation intent to the selected service. This also keeps connection declarations aligned with runtime, including explicit false/zero. Direct `instance` selection remains available for standalone values without a deployment record. Repeat this preparation after switching deployments; package-local declaration files are refreshed here, not by the context loader.
+The selected 0.3.1 chart resolves the retained deployment, checks its namespace, release and package version against Helm, and applies only its recorded operation intent to the selected service. This also keeps connection declarations aligned with runtime, including explicit false/zero. Direct `instance` selection remains available for standalone values without a deployment record. Repeat this preparation after switching deployments; package-local declaration files are refreshed here, not by the context loader.
 
 Continue with the selected operation.
 
@@ -843,7 +843,7 @@ Declarations expose HTTPS endpoint flags/hostname, repository URLs and auth/key/
 
 ## Qualification and maintenance
 
-Exact-artifact evidence remains with the [published 0.3.0 release](https://github.com/bartlapp/bartl-restic/releases/tag/v0.3.0); it does not qualify the local 0.3.1 chart candidate. Historical [replication](evidence/2026-11-02-replication.json), [Kubernetes](evidence/2026-11-02-kubernetes.json), [endpoint authorization](evidence/2026-11-02-endpoint.json) and [native copy](evidence/2026-11-02-restic-copy.json) scenarios used independent PVCs in one cluster, not a cross-provider outage. They do not qualify this rewritten operating sequence.
+Exact artifacts, exercised cases and remaining acceptance limits belong to the [0.3.1 release record](https://github.com/bartlapp/bartl-restic/releases/tag/v0.3.1). Its retained chart passed the lifecycle, Kubernetes endpoint/authorization, replication and observation-failure runners on one disposable Hetzner/K3s host. Those cases do not establish provider-loss recovery or independently qualify the complete current README and four-service walkthrough. Historical [replication](evidence/2026-11-02-replication.json), [Kubernetes](evidence/2026-11-02-kubernetes.json), [endpoint authorization](evidence/2026-11-02-endpoint.json) and [native copy](evidence/2026-11-02-restic-copy.json) evidence remains attached to its original artifacts.
 
 ### Qualification and test output
 
@@ -865,7 +865,7 @@ Each runner creates a namespace, finalizes stopped applications before uninstall
 
 Output defaults to an external private temporary directory. `BARTL_RESTIC_EVIDENCE_DIR` selects another external path; checkout paths and symlink aliases are rejected. `raw.json` holds redacted diagnostics; `qualification.json` holds selected results and source provenance. Provenance records run-start HEAD, dirty state and hashes of implementation, build and test files; a dirty run qualifies those bytes, not HEAD alone. Keep raw artifacts outside Git and put exact artifacts, concise results, limits and cleanup/budget outcome in the release/integration record. Do not add session reports.
 
-Historical 0.2.x-to-0.3.0 migration and uninstall qualification belongs to the [0.3.0 operating procedure](https://github.com/bartlapp/bartl-restic/blob/v0.3.0/README.md), not the current candidate's installation path. For reproduction, retain the verified 0.3.0 archive and use:
+Historical 0.2.x-to-0.3.0 migration and uninstall qualification belongs to the [0.3.0 operating procedure](https://github.com/bartlapp/bartl-restic/blob/v0.3.0/README.md), not the current installation path. For reproduction, retain the verified 0.3.0 archive and use:
 
 ```bash
 export CHART=/retained/bartl-restic-0.3.0.tgz
