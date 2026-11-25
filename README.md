@@ -849,6 +849,18 @@ Exact artifacts, exercised cases and remaining acceptance limits belong to the [
 
 Use `go test ./...`, `node tests/chart.mjs` and `node --test tests/artifacts.test.mjs` for offline checks. Put native Restic 0.19.1 on PATH for `TestIdleLifecycleAddsFirstNativeRepository`; without it that case skips.
 
+For manual qualification of a retained candidate archive before stable publication, supply its absolute path as `BARTL_RESTIC_CHART`. At **Prerequisites and release**, replace only the latest-stable download block with:
+
+```bash
+mkdir -p "$WORK_DIR/packages"
+CHART_STAGE=$(mktemp -d "$WORK_DIR/packages/.restic.XXXXXX")
+tar -xzf "$BARTL_RESTIC_CHART" -C "$CHART_STAGE"
+export PACKAGE_VERSION
+PACKAGE_VERSION=$(helm show chart "$CHART_STAGE/bartl-restic" | yq -er '.version')
+```
+
+Continue at **Configure a new endpoint** with the selected qualification identity and isolated TLS inputs. This exercises the ordinary operator interface with exact candidate bytes, not the public download path. Keep this distinction in the release record; public acquisition and acceptance follow stable publication.
+
 Cluster qualification requires an explicitly authorized disposable Hetzner cluster with a default StorageClass, registry access and enforced NetworkPolicy. Local Docker/Colima requires separate permission. Runners do not provision infrastructure or establish cleanup/cost.
 
 ```bash
