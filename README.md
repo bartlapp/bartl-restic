@@ -19,7 +19,7 @@ Use the [operator tools](https://github.com/bartlapp/bartl-app/blob/main/docs/op
 
 Start with its version-1 installation record, complete resource references and retained cluster access. Base or the cluster administrator supplies these; do not initialize another record or merely add a version field to an old one. No company tooling, password store or other Bartl service is required.
 
-This checkout selects candidate **0.4.0-dev.1**, introducing `ResticApplication` `v1alpha2` and CR-owned `spec.running`. Its controller image is built and pinned; live qualification and publication remain pending. For published **[0.3.1](https://github.com/bartlapp/bartl-restic/releases/tag/v0.3.1)** use its [version-bound procedure](https://github.com/bartlapp/bartl-restic/blob/v0.3.1/README.md). Native versions remain rest-server 0.14.0, nginx 1.28.0 and Restic 0.19.1.
+This checkout selects candidate **0.4.0-dev.2**, introducing `ResticApplication` `v1alpha2` and CR-owned `spec.running`. Qualification and publication are tracked under [Qualification and maintenance](#qualification-and-maintenance). For published **[0.3.1](https://github.com/bartlapp/bartl-restic/releases/tag/v0.3.1)** use its [version-bound procedure](https://github.com/bartlapp/bartl-restic/blob/v0.3.1/README.md). Native versions remain rest-server 0.14.0, nginx 1.28.0 and Restic 0.19.1.
 
 Use direnv-hooked Bash and the prepared cluster directory. For an external cluster, use the shared [supplied cluster access](https://github.com/bartlapp/bartl-app/blob/main/docs/operator-workstation.md#use-supplied-cluster-access) procedure; no Hetzner machine fields are needed.
 
@@ -36,7 +36,7 @@ set -euo pipefail
 umask 077
 mkdir -p "$WORK_DIR/packages"
 CHART_STAGE=$(mktemp -d "$WORK_DIR/packages/.restic.XXXXXX")
-helm pull oci://ghcr.io/bartlapp/bartl-restic --version 0.4.0-dev.1 --untar --untardir "$CHART_STAGE"
+helm pull oci://ghcr.io/bartlapp/bartl-restic --version 0.4.0-dev.2 --untar --untardir "$CHART_STAGE"
 export PACKAGE_VERSION
 PACKAGE_VERSION=$(helm show chart "$CHART_STAGE/bartl-restic" | yq -er '.version')
 ```
@@ -543,7 +543,7 @@ Acquire the explicitly selected candidate target artifact while the source remai
 export TARGET_PACKAGE=restic-replacement
 mkdir -p "$WORK_DIR/packages"
 TARGET_STAGE=$(mktemp -d "$WORK_DIR/packages/.restic.XXXXXX")
-helm pull oci://ghcr.io/bartlapp/bartl-restic --version 0.4.0-dev.1 --untar --untardir "$TARGET_STAGE"
+helm pull oci://ghcr.io/bartlapp/bartl-restic --version 0.4.0-dev.2 --untar --untardir "$TARGET_STAGE"
 export TARGET_VERSION
 TARGET_VERSION=$(helm show chart "$TARGET_STAGE/bartl-restic" | yq -er '.version')
 MATCHING_PACKAGE=$(yq -o=json '.packages // {}' "$VALUES" |
@@ -593,7 +593,7 @@ Before creating the target, inspect the retained repository and replication dest
 ```bash
 INSTANCE=$(yq -er '.deployments[strenv(SOURCE_DEPLOYMENT)].instance' "$VALUES")
 export INSTANCE
-yq '.services[strenv(INSTANCE)] | {repositories, replication}' "$VALUES"
+yq '.services[strenv(INSTANCE)] | pick(["repositories", "replication"])' "$VALUES"
 ```
 
 For every repository, keep its existing `recovery` binding if it already identifies the selected surviving history and reader Secret. For a missing binding or an intentionally changed source, select the actual destination below. Read host and repository from the retained replication destination or the surviving endpoint's supplied inventory; do not derive the remote repository name from the local name. Repeat only for repositories whose binding needs selection:
@@ -897,7 +897,7 @@ Declarations expose HTTPS endpoint flags/hostname, repository URLs and auth/key/
 
 Exact artifacts, exercised cases and remaining acceptance limits belong to the [0.3.1 release record](https://github.com/bartlapp/bartl-restic/releases/tag/v0.3.1). Its retained chart passed the lifecycle, Kubernetes endpoint/authorization, replication and observation-failure runners on one disposable Hetzner/K3s host. Those cases do not establish provider-loss recovery or independently qualify the complete current README and four-service walkthrough. Historical [replication](evidence/2026-11-02-replication.json), [Kubernetes](evidence/2026-11-02-kubernetes.json), [endpoint authorization](evidence/2026-11-02-endpoint.json) and [native copy](evidence/2026-11-02-restic-copy.json) evidence remains attached to its original artifacts.
 
-Candidate 0.4.0-dev.1 pins the controller built from `94e0eba` at manifest `sha256:82e6b1eb91374d272450d68b3bc6de56fb6b0ee5d3f6137232eecef4d49903b4`. Live qualification remains pending. Exercise CR-owned stop/start, static reapplication while stopped, controller restart, interrupted/completed native work, replacement, uninstall/reinstall and isolated standalone custody/recovery before publication. Retain exact artifacts and selected results in the release record.
+Candidate 0.4.0-dev.1 passed the lifecycle, endpoint authorization, replication, observation-loss and retained-state reinstall runners. Its standalone procedure also reconstructed history on an independent host with the source powered off and accepted a new backup. Candidate 0.4.0-dev.2 additionally pins nginx to the exact digest exercised in those runs; its controller build and affected delivery checks remain pending. The new candidate reuses unchanged native/controller behavior evidence explicitly, not as relabelled executions. Exact artifacts, selected results and limits belong in the release record.
 
 ### Qualification and test output
 
@@ -914,6 +914,14 @@ PACKAGE_VERSION=$(helm show chart "$CHART_STAGE/bartl-restic" | yq -er '.version
 ```
 
 Continue at **Configure a new endpoint** with the selected qualification identity and isolated TLS inputs. This exercises the ordinary operator interface with exact candidate bytes, not the public download path. Keep this distinction in the release record; public acquisition and acceptance follow stable publication.
+
+For replacement qualification with the same retained archive, run the target-acquisition block with its `helm pull` command replaced by:
+
+```bash
+tar -xzf "$BARTL_RESTIC_CHART" -C "$TARGET_STAGE"
+```
+
+Keep its version detection and package-entry selection unchanged. This is candidate acquisition, not a different replacement procedure.
 
 Cluster qualification requires an explicitly authorized disposable Hetzner cluster with a default StorageClass, registry access and enforced NetworkPolicy. Local Docker/Colima requires separate permission. Runners do not provision infrastructure or establish cleanup/cost.
 

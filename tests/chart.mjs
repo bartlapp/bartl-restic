@@ -7,6 +7,11 @@ import {fileURLToPath} from 'node:url';
 const chart = process.env.RESTIC_CHART || fileURLToPath(new URL('../chart', import.meta.url));
 const helm = process.env.HELM || 'helm';
 const yq = process.env.YQ || 'yq';
+const chartMetadata = spawnSync(helm, ['show', 'chart', chart], {encoding: 'utf8'});
+assert.equal(chartMetadata.status, 0, chartMetadata.stderr);
+const versionResult = spawnSync(yq, ['-er', '.version'], {input: chartMetadata.stdout, encoding: 'utf8'});
+assert.equal(versionResult.status, 0, versionResult.stderr);
+const chartVersion = versionResult.stdout.trim();
 function render(values, {mode = 'deployment', release = 'backup', namespace = 'backup'} = {}) {
   return spawnSync(helm, ['template', release, chart, '-n', namespace, '-f', '-', '--set-string', `renderMode=${mode}`], {
     input: JSON.stringify(values), encoding: 'utf8', maxBuffer: 8 * 1024 * 1024,
@@ -131,7 +136,7 @@ check('legacy flat inputs fail instead of silently changing package intent', () 
   }
 });
 check('release guard accepts the selected chart and rejects incompatible releases in both modes', () => {
-  const v = base(); selected(v).release = '0.4.0-dev.1'; deployment(v); declaration(v);
+  const v = base(); selected(v).release = chartVersion; deployment(v); declaration(v);
   selected(v).release = '0.2.1'; rejects(v); rejects(v, {mode: 'connections'});
 });
 check('deployment selection applies only static operation configuration across manifests and declarations', () => {
@@ -145,7 +150,7 @@ check('deployment selection applies only static operation configuration across m
     'archive-source': {instance: 'archive', namespace: 'source', release: 'original', package: 'old'},
     'archive-replacement': {instance: 'archive', namespace: 'backup', release: 'backup', package: 'restic'},
   };
-  v.packages = {old: {version: '0.3.1'}, restic: {version: '0.4.0-dev.1', chart: 'oci://ghcr.io/bartlapp/bartl-restic'}};
+  v.packages = {old: {version: '0.3.1'}, restic: {version: chartVersion, chart: 'oci://ghcr.io/bartlapp/bartl-restic'}};
   v.operations = {deployments: {
     'archive-source': {ingressEnabled: true},
     'archive-replacement': {ingressEnabled: false},
@@ -176,12 +181,12 @@ check('deployment selection rejects wrong targets, package versions and conflict
   v.deployment = 'target';
   v.deployments = {target: {instance: 'archive', namespace: 'backup', release: 'backup', package: 'restic'}};
   v.services.archive = {};
-  v.packages = {restic: {version: '0.4.0-dev.1'}};
+  v.packages = {restic: {version: chartVersion}};
   for (const options of [{}, {mode: 'connections'}]) {
     assert.equal(render(v, options).status, 0);
     rejects(v, {...options, namespace: 'other'});
     rejects(v, {...options, release: 'other'});
-    v.packages.restic.version = '0.3.1'; rejects(v, options); v.packages.restic.version = '0.4.0-dev.1';
+    v.packages.restic.version = '0.3.1'; rejects(v, options); v.packages.restic.version = chartVersion;
     v.instance = 'restic'; rejects(v, options); delete v.instance;
     v.deployments.target.package = 'missing'; rejects(v, options); v.deployments.target.package = 'restic';
     delete v.services.archive; rejects(v, options); v.services.archive = {};
