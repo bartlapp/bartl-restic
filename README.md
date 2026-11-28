@@ -19,7 +19,7 @@ Use the [operator tools](https://github.com/bartlapp/bartl-app/blob/main/docs/op
 
 Start with its version-1 installation record, complete resource references and retained cluster access. Base or the cluster administrator supplies these; do not initialize another record or merely add a version field to an old one. No company tooling, password store or other Bartl service is required.
 
-This checkout selects candidate **0.4.0-dev.2**, introducing `ResticApplication` `v1alpha2` and CR-owned `spec.running`. Qualification and publication are tracked under [Qualification and maintenance](#qualification-and-maintenance). For published **[0.3.1](https://github.com/bartlapp/bartl-restic/releases/tag/v0.3.1)** use its [version-bound procedure](https://github.com/bartlapp/bartl-restic/blob/v0.3.1/README.md). Native versions remain rest-server 0.14.0, nginx 1.28.0 and Restic 0.19.1.
+This procedure selects prerelease **[0.4.0-dev.2](https://github.com/bartlapp/bartl-restic/releases/tag/v0.4.0-dev.2)**, with `ResticApplication` `v1alpha2` and CR-owned `spec.running`. Native versions are rest-server 0.14.0, nginx 1.28.0 and Restic 0.19.1, with immutable runtime image references. Existing 0.3.1 installations use their [version-bound procedure](https://github.com/bartlapp/bartl-restic/blob/v0.3.1/README.md).
 
 Use direnv-hooked Bash and the prepared cluster directory. For an external cluster, use the shared [supplied cluster access](https://github.com/bartlapp/bartl-app/blob/main/docs/operator-workstation.md#use-supplied-cluster-access) procedure; no Hetzner machine fields are needed.
 
@@ -29,7 +29,7 @@ Select the prepared cluster directory:
 cd "${WORK_DIR_ROOT:-$HOME/bartl}/acme/acme-installation/clusters/cluster-1"
 ```
 
-Once this candidate has independently retrievable, qualified artifacts, select that exact version explicitly. Do not use an unversioned pull: it selects the older stable API. Until then, only the retained-candidate qualification path below applies:
+Select this prerelease explicitly. An unversioned pull selects the older stable API:
 
 ```bash
 set -euo pipefail
@@ -357,7 +357,7 @@ TLS_SECRET=$(yq -er '.credentials.bindings[strenv(INSTANCE)].tls.secretName' "$I
 CLAIM=$(yq -er '.storage.claims[strenv(INSTANCE)].repository.claimName' "$INSTALL_DIR/restic-connections.yaml")
 ```
 
-The selected candidate chart resolves the retained deployment, checks its namespace, release and package version against Helm, and applies only static `ingressEnabled` overrides. Runtime intent belongs solely to the application CR. Direct `instance` selection remains available for standalone values without a deployment record. Repeat chart preparation only for static Helm/declaration operations after switching deployments.
+The selected chart resolves the retained deployment, checks its namespace, release and package version against Helm, and applies only static `ingressEnabled` overrides. Runtime intent belongs solely to the application CR. Direct `instance` selection remains available for standalone values without a deployment record. Repeat chart preparation only for static Helm/declaration operations after switching deployments.
 
 Continue with the selected operation.
 
@@ -537,7 +537,7 @@ Starting condition: independently retained configuration, original primary crede
 
 For a reachable source, [prepare its chart-backed operations](#prepare-chart-backed-operations), stop consumer publication and finish/verify final secondary copies before the endpoint stop. Preserve logs and confirm current-generation drainage. For a lost source, enforce retirement independently, including a returning predecessor; unreachability and DNS changes do not fence it. If retirement cannot be established, do not activate the target.
 
-Acquire the explicitly selected candidate target artifact while the source remains selected, only after its build and qualification prerequisites above are met. Reuse a matching package entry; select an unused key only for a different artifact:
+Acquire the selected target artifact while the source remains selected. Reuse a matching package entry; select an unused key only for a different artifact:
 
 ```bash
 export TARGET_PACKAGE=restic-replacement
@@ -895,9 +895,9 @@ Declarations expose HTTPS endpoint flags/hostname, repository URLs and auth/key/
 
 ## Qualification and maintenance
 
-Exact artifacts, exercised cases and remaining acceptance limits belong to the [0.3.1 release record](https://github.com/bartlapp/bartl-restic/releases/tag/v0.3.1). Its retained chart passed the lifecycle, Kubernetes endpoint/authorization, replication and observation-failure runners on one disposable Hetzner/K3s host. Those cases do not establish provider-loss recovery or independently qualify the complete current README and four-service walkthrough. Historical [replication](evidence/2026-11-02-replication.json), [Kubernetes](evidence/2026-11-02-kubernetes.json), [endpoint authorization](evidence/2026-11-02-endpoint.json) and [native copy](evidence/2026-11-02-restic-copy.json) evidence remains attached to its original artifacts.
+The [0.4.0-dev.2 release record](https://github.com/bartlapp/bartl-restic/releases/tag/v0.4.0-dev.2) owns exact artifact/procedure identities, selected-profile acceptance, evidence reuse and material limits. Qualification covers the standalone README, CR-owned runtime intent, native repository protection and replication, source-independent reconstruction, continued useful backups and retained-state reinstall. The nginx pin preserves the native bytes exercised by the preceding candidate; unchanged worker and lifecycle evidence is explicitly attributed rather than relabelled.
 
-Candidate 0.4.0-dev.1 passed the lifecycle, endpoint authorization, replication, observation-loss and retained-state reinstall runners. Its standalone procedure also reconstructed history on an independent host with the source powered off and accepted a new backup. Candidate 0.4.0-dev.2 additionally pins nginx to the exact digest exercised in those runs; its controller build and affected delivery checks remain pending. The new candidate reuses unchanged native/controller behavior evidence explicitly, not as relabelled executions. Exact artifacts, selected results and limits belong in the release record.
+The selected profile is Linux amd64, single-node K3s and RWO storage. Planned source retirement and an independent-host replacement were exercised, not HA, provider-loss activation, production-scale RTO or the coordinated four-service installation. Historical release evidence remains attached to its own versions.
 
 ### Qualification and test output
 
@@ -946,9 +946,7 @@ BARTL_RESTIC_REUSE=1 BARTL_RESTIC_CHART="$BARTL_RESTIC_CHART" BARTL_RESTIC_IMAGE
   node tests/uninstall.mjs
 ```
 
-This checks preserved repository identity/history, old-point restore, new backups, contender exclusion, stale-worker refusal, finalization, same-PVC reinstall and separate data destruction. It does not adopt old management resources. Historical 0.2.x-to-0.3.0 migration/uninstall evidence and its runner belong to the [0.3.0 operating procedure and source](https://github.com/bartlapp/bartl-restic/blob/v0.3.0/README.md), not this candidate's API.
-
-Historical **0.2.0 must upgrade to 0.2.1 before application deletion**, using its [matching release procedure](https://github.com/bartlapp/bartl-restic/blob/v0.2.1/README.md#supported-uninstall) and retained flat file. Its fixed controller must finalize the application while alive; upgrading later cannot repair an already orphaned binding. These historical requirements do not add a migration step to current installations.
+This checks preserved repository identity/history, old-point restore, new backups, contender exclusion, stale-worker refusal, finalization, same-PVC reinstall and separate data destruction. It does not adopt old management resources.
 
 ## Release maintenance
 
