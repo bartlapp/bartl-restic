@@ -11,13 +11,13 @@ import (
 	"testing"
 	"time"
 
-	api "github.com/bartlapp/bartl-restic/api/v1alpha1"
+	api "github.com/bartlapp/bartl-restic/api/v1alpha2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestReplicationAdmissionBindsRetainedTarget(t *testing.T) {
 	t.Setenv("PVC_UID", "original-pvc")
-	original := api.ResticApplication{ObjectMeta: metav1.ObjectMeta{UID: "application", Generation: 4}, Spec: api.Spec{Replicas: 1, ExistingClaim: "data"}, Status: api.Status{State: "Ready", ObservedGeneration: 4, Operation: &api.Operation{Result: "Succeeded", PVCUID: "original-pvc"}}}
+	original := api.ResticApplication{ObjectMeta: metav1.ObjectMeta{UID: "application", Generation: 4}, Spec: api.Spec{Running: true, ExistingClaim: "data"}, Status: api.Status{State: "Ready", ObservedGeneration: 4, Operation: &api.Operation{Result: "Succeeded", PVCUID: "original-pvc"}}}
 	cases := []struct {
 		name    string
 		change  func(*api.ResticApplication)
@@ -25,7 +25,7 @@ func TestReplicationAdmissionBindsRetainedTarget(t *testing.T) {
 	}{
 		{"current target", func(a *api.ResticApplication) {}, true},
 		{"replaced PVC with unchanged generation", func(a *api.ResticApplication) { a.Status.Operation.PVCUID = "replacement-pvc" }, false},
-		{"stop intent before status catches up", func(a *api.ResticApplication) { a.Spec.Replicas = 0 }, false},
+		{"stop intent before status catches up", func(a *api.ResticApplication) { a.Spec.Running = false }, false},
 		{"old generation after stop and start", func(a *api.ResticApplication) { a.Generation = 5; a.Status.ObservedGeneration = 5 }, false},
 		{"missing verified operation", func(a *api.ResticApplication) { a.Status.Operation = nil }, false},
 		{"failed target with stale Ready", func(a *api.ResticApplication) { a.Status.Operation.Result = "Failed" }, false},
@@ -105,7 +105,7 @@ func TestAdmissionRequiresLiveClaimOwnership(t *testing.T) {
 }
 
 func admittedApplication(mode string) *api.ResticApplication {
-	app := &api.ResticApplication{ObjectMeta: metav1.ObjectMeta{UID: "application", Generation: 4}, Spec: api.Spec{Replicas: 1, ExistingClaim: "data"}, Status: api.Status{State: "Ready", ObservedGeneration: 4, Operation: &api.Operation{Result: "Succeeded", PVCUID: "original-pvc", Generation: 4, JobUID: "operation"}}}
+	app := &api.ResticApplication{ObjectMeta: metav1.ObjectMeta{UID: "application", Generation: 4}, Spec: api.Spec{Running: true, ExistingClaim: "data"}, Status: api.Status{State: "Ready", ObservedGeneration: 4, Operation: &api.Operation{Result: "Succeeded", PVCUID: "original-pvc", Generation: 4, JobUID: "operation"}}}
 	if mode == "lifecycle" {
 		app.Status.Operation.Result = "Running"
 	}
@@ -147,7 +147,7 @@ func TestServeAdmissionUsesVerifiedTargetNotReadinessOrLatestGeneration(t *testi
 	}{
 		{"verified before readiness", func(a *api.ResticApplication) { a.Status.State = "Starting"; a.Status.ObservedGeneration = 0 }, true},
 		{"schedule edit", func(a *api.ResticApplication) { a.Generation = 5 }, true},
-		{"stop intent", func(a *api.ResticApplication) { a.Spec.Replicas = 0 }, false},
+		{"stop intent", func(a *api.ResticApplication) { a.Spec.Running = false }, false},
 		{"replaced application", func(a *api.ResticApplication) { a.UID = "replacement" }, false},
 		{"deleting application", func(a *api.ResticApplication) { now := metav1.Now(); a.DeletionTimestamp = &now }, false},
 		{"missing operation", func(a *api.ResticApplication) { a.Status.Operation = nil }, false},
@@ -212,7 +212,7 @@ func TestAdmissionNegativeDominatesUnavailableObservation(t *testing.T) {
 		t.Run(negative, func(t *testing.T) {
 			app := admittedApplication("serve")
 			if negative == "application" {
-				app.Spec.Replicas = 0
+				app.Spec.Running = false
 			}
 			guard := fixtureAdmission(t, app, "serve", func(w http.ResponseWriter, r *http.Request) {
 				if negative == "application" {
@@ -260,6 +260,76 @@ func TestWorkerMonitorsRemainFailClosedOnUnavailableObservation(t *testing.T) {
 				}
 			case <-time.After(3 * time.Second):
 				t.Fatal("worker kept running without current admission")
+			}
+		})
+	}
+}
+
+func TestRuntimeIntentIsRequiredAndStopRevokesEveryWorker(t *testing.T) {
+	t.Setenv("PVC_UID", "original-pvc")
+	t.Setenv("OPERATION_UID", "operation")
+	for _, mode := range []string{"lifecycle", "replicate", "serve"} {
+		for _, intent := range []string{"true", "false", "missing"} {
+			t.Run(mode+"/"+intent, func(t *testing.T) {
+				app := admittedApplication(mode)
+				data, err := json.Marshal(app)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var body map[string]any
+				if err := json.Unmarshal(data, &body); err != nil {
+					t.Fatal(err)
+				}
+				spec := body["spec"].(map[string]any)
+				switch intent {
+				case "false":
+					spec["running"] = false
+				case "missing":
+					delete(spec, "running")
+				}
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					json.NewEncoder(w).Encode(body)
+				}))
+				defer server.Close()
+				guard := &admission{client: server.Client(), url: server.URL, uid: "application", generation: 4, mode: mode}
+				_, err = guard.checkApplication(context.Background(), "token")
+				if intent == "true" && err != nil {
+					t.Fatalf("current intent rejected: %v", err)
+				}
+				if intent == "false" && !errors.Is(err, errAdmissionRevoked) {
+					t.Fatalf("stop did not revoke worker: %v", err)
+				}
+				if intent == "missing" && (err == nil || errors.Is(err, errAdmissionRevoked)) {
+					t.Fatalf("missing intent was not an observation error: %v", err)
+				}
+			})
+		}
+	}
+}
+
+func TestLifecycleAdmissionRejectsStaleNativeOwnership(t *testing.T) {
+	t.Setenv("PVC_UID", "original-pvc")
+	t.Setenv("OPERATION_UID", "operation")
+	for _, fault := range []string{"job UID", "PVC UID", "operation generation", "failed operation", "application UID"} {
+		t.Run(fault, func(t *testing.T) {
+			app := admittedApplication("lifecycle")
+			switch fault {
+			case "job UID":
+				app.Status.Operation.JobUID = "other"
+			case "PVC UID":
+				app.Status.Operation.PVCUID = "other"
+			case "operation generation":
+				app.Status.Operation.Generation++
+			case "failed operation":
+				app.Status.Operation.Result = "Failed"
+			case "application UID":
+				app.UID = "other"
+			}
+			guard := fixtureAdmission(t, app, "lifecycle", func(w http.ResponseWriter, r *http.Request) {
+				json.NewEncoder(w).Encode(admittedPVC())
+			})
+			if err := guard.check(context.Background()); !errors.Is(err, errAdmissionRevoked) {
+				t.Fatalf("stale lifecycle ownership accepted: %v", err)
 			}
 		})
 	}

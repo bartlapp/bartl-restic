@@ -5,12 +5,13 @@ import (
 	"errors"
 	"testing"
 
-	api "github.com/bartlapp/bartl-restic/api/v1alpha1"
+	api "github.com/bartlapp/bartl-restic/api/v1alpha2"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -62,9 +63,9 @@ func TestStoppedClaimReleasesOnlyOnDeletionAndCanBeReclaimed(t *testing.T) {
 	if err := r.Update(ctx, pvc); err != nil {
 		t.Fatal(err)
 	}
-	a.Spec.Replicas = 0
+	a.Spec.Running = false
 	a.Generation++
-	// A stopped application from the older controller must regain protection.
+	// A stopped application missing its finalizer must regain protection.
 	a.Finalizers = nil
 	if err := r.Update(ctx, a); err != nil {
 		t.Fatal(err)
@@ -87,7 +88,7 @@ func TestStoppedClaimReleasesOnlyOnDeletionAndCanBeReclaimed(t *testing.T) {
 		t.Fatalf("release changed retained PVC metadata or storage: %+v", got)
 	}
 	fresh := &api.ResticApplication{ObjectMeta: metav1.ObjectMeta{Name: a.Name, Namespace: a.Namespace, UID: "replacement-app", Generation: 1}, Spec: a.Spec}
-	fresh.Spec.Replicas = 1
+	fresh.Spec.Running = true
 	fresh.Spec.TLSSecret = "replacement-tls"
 	fresh.Spec.Repositories = []api.Repository{{Name: "independent", AuthSecret: "replacement-auth", PasswordSecret: "replacement-key"}}
 	if err := r.Create(ctx, fresh); err != nil {
@@ -316,6 +317,29 @@ func TestTerminalJobDoesNotPreventClaimRelease(t *testing.T) {
 	job := r.lifecycleJob(a)
 	job.Status.Conditions = []batchv1.JobCondition{{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}}
 	if err := r.Create(ctx, job); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Delete(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	if err := reconcileDeletion(t, r); err != nil {
+		t.Fatal(err)
+	}
+	assertDeleted(t, r)
+	assertClaimOwner(t, r, "")
+}
+
+func TestDeletionConsumesBoundCompleteResultBeforeReleasingClaim(t *testing.T) {
+	r, a := fixture(t)
+	ctx := context.Background()
+	a.Status.Operation.Result = "Running"
+	job := r.lifecycleJob(a)
+	job.UID = types.UID(a.Status.Operation.JobUID)
+	job.Status.Conditions = []batchv1.JobCondition{{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}}
+	if err := r.Create(ctx, job); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Status().Update(ctx, a); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.Delete(ctx, a); err != nil {

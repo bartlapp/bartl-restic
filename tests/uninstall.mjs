@@ -8,18 +8,11 @@ import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { createArtifactDirectory } from './artifacts.mjs';
 import { uninstallStoppedApplication } from './removal.mjs';
+import { precreateApplication } from './installation.mjs';
 
 const chart = process.env.BARTL_RESTIC_CHART || '';
 const image = process.env.BARTL_RESTIC_IMAGE || '';
 const reuse = process.env.BARTL_RESTIC_REUSE === '1';
-const sourceChart = process.env.BARTL_RESTIC_UPGRADE_FROM_CHART || '';
-const sourceImage = process.env.BARTL_RESTIC_UPGRADE_FROM_IMAGE || '';
-if ((sourceChart || sourceImage) && (!reuse ||
-    !/^oci:\/\/[^\s]+@sha256:[a-f0-9]{64}$/.test(sourceChart) ||
-    !/^[^\s]+@sha256:[a-f0-9]{64}$/.test(sourceImage))) {
-  console.error('Upgrade proof requires BARTL_RESTIC_REUSE=1 and both immutable BARTL_RESTIC_UPGRADE_FROM_CHART/IMAGE references.');
-  process.exit(2);
-}
 const publishedChart = /^oci:\/\/[^\s]+@sha256:[a-f0-9]{64}$/.test(chart);
 const localChart = !chart.startsWith('oci:') && chart.endsWith('.tgz') && (() => {
   try { return statSync(chart).isFile(); } catch { return false; }
@@ -88,16 +81,18 @@ async function state(expected) {
     }
     return object.status?.state === expected && object.status.observedGeneration === generation &&
       object.status.conditions?.some(condition => condition.type === expected && condition.status === 'True' && condition.observedGeneration === generation) &&
-      (expected !== 'Stopped' || object.spec.replicas === 0) ? object : null;
+      (expected !== 'Stopped' || object.spec.running === false) ? object : null;
   }, 600000);
 }
 const exec = (script, options) => k(['exec', 'native-client', '--', '/bin/sh', '-ec', script], options);
 function restic(operation, options) {
   return exec(`export RESTIC_REPOSITORY='rest:https://${hostname}/alpha/' RESTIC_PASSWORD_FILE=/credentials/password; export RESTIC_REST_USERNAME="$(cat /credentials/username)" RESTIC_REST_PASSWORD="$(cat /credentials/restPassword)"; restic --cacert /credentials/ca.crt ${operation}`, options);
 }
-function install(selectedChart = chart) {
-  command('helm', ['upgrade', '--install', release, selectedChart, '--namespace', namespace, '--reset-values',
-    '-f', join(privateDir, selectedChart === sourceChart ? 'source-values.json' : 'values.json'), '--wait=legacy', '--timeout', '5m'], { timeout: 330000 });
+function install() {
+  const valuesFile = join(privateDir, 'values.json');
+  precreateApplication({command, chart, release, namespace, valuesFile});
+  command('helm', ['install', release, chart, '--namespace', namespace,
+    '-f', valuesFile, '--wait=legacy', '--timeout', '5m'], { timeout: 330000 });
 }
 const ready = pod => pod.status.phase === 'Running' && !pod.metadata.deletionTimestamp &&
   pod.status.conditions?.some(condition => condition.type === 'Ready' && condition.status === 'True');
@@ -138,6 +133,7 @@ const owner = () => get('pvc', 'fixture-data').metadata.annotations?.['restic.ba
 async function contender(round, originalUID) {
   const competingRelease = 'contender';
   const name = `${competingRelease}-restic`;
+  precreateApplication({command, chart, release: competingRelease, namespace, valuesFile: join(privateDir, 'values.json')});
   command('helm', ['upgrade', '--install', competingRelease, chart, '--namespace', namespace,
     '-f', join(privateDir, 'values.json'), '--wait=legacy', '--timeout', '5m'], { timeout: 330000 });
   const rejected = await until(`${round}: contender ownership refusal`, () => {
@@ -147,11 +143,10 @@ async function contender(round, originalUID) {
   assert(`${round}: fresh contender is refused without changing owner`,
     rejected.metadata.uid !== originalUID && /another application UID/.test(rejected.status.reason) && owner() === originalUID &&
     !get('jobs').items.some(job => job.metadata.ownerReferences?.some(reference => reference.uid === rejected.metadata.uid)));
-  command('helm', ['upgrade', competingRelease, chart, '--namespace', namespace, '--reuse-values',
-    '--set', 'services.restic.replicas=0', '--wait=legacy', '--timeout', '5m'], { timeout: 330000 });
+  k(['patch', 'resticapplication', name, '--type=merge', '-p', '{"spec":{"running":false}}']);
   await until(`${round}: contender stopped`, () => {
     const object = get('resticapplication', name);
-    return object.spec.replicas === 0 && object.status?.state === 'Stopped' &&
+    return object.spec.running === false && object.status?.state === 'Stopped' &&
       object.status.observedGeneration === object.metadata.generation &&
       object.status.conditions?.some(condition => condition.type === 'Stopped' && condition.status === 'True' &&
         condition.observedGeneration === object.metadata.generation);
@@ -220,7 +215,7 @@ async function replayStaleLifecycle(captured, oldUID, history) {
 async function stopAndUninstall(round, pvcUID, secrets) {
   const initialController = controller();
   const initialStatus = initialController.status.containerStatuses.find(container => container.name === 'controller');
-  command('helm', ['upgrade', release, chart, '--namespace', namespace, '--reuse-values', '--set', 'services.restic.replicas=0', '--wait=legacy', '--timeout', '5m'], { timeout: 330000 });
+  k(['patch', 'resticapplication', application, '--type=merge', '-p', '{"spec":{"running":false}}']);
   const stopped = await state('Stopped');
   await until('actual endpoint and lifecycle drainage', () => {
     const deployment = get('deployment', application);
@@ -284,13 +279,12 @@ try {
   apply({ apiVersion: 'v1', kind: 'PersistentVolumeClaim', metadata: { name: 'fixture-data' }, spec: { accessModes: ['ReadWriteOnce'], resources: { requests: { storage: '3Gi' } } } });
   const service = { existingClaim: 'fixture-data', tlsSecret: 'fixture-tls',
     repositories: [{ name: 'alpha', authSecret: 'fixture-auth', passwordSecret: 'fixture-key' }] };
-  if (sourceChart) writeFileSync(join(privateDir, 'source-values.json'), JSON.stringify(service), { mode: 0o600 });
   writeFileSync(join(privateDir, 'values.json'), JSON.stringify({ installation: namespace, services: { restic: {
     ...service, hostname, ingress: { enabled: false }, tls: { managed: false },
   } } }), { mode: 0o600 });
-  install(sourceChart || chart);
+  install();
   await state('Ready');
-  assertPublishedImages('initial install', sourceImage || image);
+  assertPublishedImages('initial install');
   apply({ apiVersion: 'v1', kind: 'Pod', metadata: { name: 'native-client' }, spec: { automountServiceAccountToken: false, restartPolicy: 'Never',
     containers: [{ name: 'native', image, command: ['/bin/sh', '-ec', 'while :; do sleep 3600; done'], volumeMounts: [{ name: 'credentials', mountPath: '/credentials', readOnly: true }] }],
     volumes: [{ name: 'credentials', secret: { secretName: 'fixture-client', defaultMode: 0o400 } }] } });
@@ -308,18 +302,6 @@ try {
   const pvcUID = get('pvc', 'fixture-data').metadata.uid;
   const secrets = retainedSecrets();
   const originalUID = app().metadata.uid;
-  if (sourceChart) {
-    install();
-    const upgraded = await state('Ready');
-    assertPublishedImages('upgraded fixed release');
-    assert('upgrade preserves application/PVC identity and independent Secrets',
-      upgraded.metadata.uid === originalUID && get('pvc', 'fixture-data').metadata.uid === pvcUID && secretsUnchanged(secrets));
-    assert('fixed controller protects finalization and retains repository identity/history after upgrade',
-      upgraded.metadata.finalizers?.includes('restic.bartl.sh/drain') && owner() === originalUID &&
-      JSON.parse(restic('cat config').stdout).id === repositoryID &&
-      JSON.stringify(JSON.parse(restic('snapshots --json').stdout)) === JSON.stringify(snapshots));
-    await restore(snapshot, payloadHash, 'after-upgrade-old', 'upgrade old point');
-  }
   const originalSpec = app().spec;
   const capturedLifecycle = reuse ? captureLifecycle() : null;
   if (reuse) {

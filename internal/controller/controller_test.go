@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	api "github.com/bartlapp/bartl-restic/api/v1alpha1"
+	api "github.com/bartlapp/bartl-restic/api/v1alpha2"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -27,14 +27,14 @@ func fixture(t *testing.T) (*Reconciler, *api.ResticApplication) {
 	if err := api.AddToScheme(scheme); err != nil {
 		t.Fatal(err)
 	}
-	a := &api.ResticApplication{ObjectMeta: metav1.ObjectMeta{Name: "backup", Namespace: "test", UID: "app-uid", Generation: 1, Finalizers: []string{finalizer}}, Spec: api.Spec{Replicas: 1, ExistingClaim: "data", TLSSecret: "tls", Image: "worker:qualified", Repositories: []api.Repository{{Name: "alpha", AuthSecret: "auth", PasswordSecret: "key"}}}}
+	a := &api.ResticApplication{ObjectMeta: metav1.ObjectMeta{Name: "backup", Namespace: "test", UID: "app-uid", Generation: 1, Finalizers: []string{finalizer}}, Spec: api.Spec{Running: true, ExistingClaim: "data", TLSSecret: "tls", Image: "worker:qualified", Repositories: []api.Repository{{Name: "alpha", AuthSecret: "auth", PasswordSecret: "key"}}}}
 	pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "data", Namespace: a.Namespace, UID: "pvc-uid", Annotations: map[string]string{claimOwner: string(a.UID)}}}
 	objects := []client.Object{a, pvc}
 	for _, name := range []string{"tls", "auth", "key"} {
 		objects = append(objects, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: a.Namespace}})
 	}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&api.ResticApplication{}, &appsv1.Deployment{}, &batchv1.Job{}).WithObjects(objects...).Build()
-	r := &Reconciler{Client: c, Scheme: scheme, Namespace: a.Namespace, Name: a.Name, Release: "backup"}
+	r := &Reconciler{Client: c, Scheme: scheme, Namespace: a.Namespace, Name: a.Name}
 	hash, err := r.inputHash(context.Background(), a, pvc)
 	if err != nil {
 		t.Fatal(err)
@@ -67,7 +67,7 @@ func noEndpoint(t *testing.T, r *Reconciler) {
 func TestCompletedStopRequiresFreshNativeAdmission(t *testing.T) {
 	r, a := fixture(t)
 	ctx := context.Background()
-	a.Spec.Replicas = 0
+	a.Spec.Running = false
 	a.Generation = 2
 	if err := r.Update(ctx, a); err != nil {
 		t.Fatal(err)
@@ -77,8 +77,8 @@ func TestCompletedStopRequiresFreshNativeAdmission(t *testing.T) {
 		t.Fatalf("stop not completed: %s", a.Status.State)
 	}
 	// A restarted controller must not use the old success to serve an offline-modified PVC.
-	r = &Reconciler{Client: r.Client, Scheme: r.Scheme, Namespace: r.Namespace, Name: r.Name, Release: r.Release}
-	a.Spec.Replicas = 1
+	r = &Reconciler{Client: r.Client, Scheme: r.Scheme, Namespace: r.Namespace, Name: r.Name}
+	a.Spec.Running = true
 	a.Generation = 3
 	if err := r.Update(ctx, a); err != nil {
 		t.Fatal(err)
@@ -143,7 +143,7 @@ func TestStaleCompletionAndForeignClaimCannotServe(t *testing.T) {
 func TestControllerRestartReusesSuccessfulAdmission(t *testing.T) {
 	r, a := fixture(t)
 	ctx := context.Background()
-	r = &Reconciler{Client: r.Client, Scheme: r.Scheme, Namespace: r.Namespace, Name: r.Name, Release: r.Release}
+	r = &Reconciler{Client: r.Client, Scheme: r.Scheme, Namespace: r.Namespace, Name: r.Name}
 	a = step(t, r)
 	if a.Status.Operation == nil || a.Status.Operation.ID != "old-operation" || a.Status.Operation.Result != "Succeeded" {
 		t.Fatalf("successful running admission discarded: %+v", a.Status.Operation)
@@ -174,7 +174,7 @@ func TestFailedAdmissionSurvivesStopAndRun(t *testing.T) {
 			if err := r.Status().Update(ctx, a); err != nil {
 				t.Fatal(err)
 			}
-			a.Spec.Replicas = 0
+			a.Spec.Running = false
 			a.Generation = 2
 			if err := r.Update(ctx, a); err != nil {
 				t.Fatal(err)
@@ -184,7 +184,7 @@ func TestFailedAdmissionSurvivesStopAndRun(t *testing.T) {
 				t.Fatalf("stop cleared failure: %+v", a.Status)
 			}
 			reason := a.Status.Operation.Reason
-			a.Spec.Replicas = 1
+			a.Spec.Running = true
 			a.Generation = 3
 			if err := r.Update(ctx, a); err != nil {
 				t.Fatal(err)
@@ -255,7 +255,7 @@ func TestIdleEndpointRequiresOnlyTLSAndRetainsClaimFence(t *testing.T) {
 func TestIdleStopRestartRequiresFreshNativeAdmission(t *testing.T) {
 	r, a := idleFixture(t)
 	ctx := context.Background()
-	a.Spec.Replicas = 0
+	a.Spec.Running = false
 	a.Generation = 2
 	if err := r.Update(ctx, a); err != nil {
 		t.Fatal(err)
@@ -264,8 +264,8 @@ func TestIdleStopRestartRequiresFreshNativeAdmission(t *testing.T) {
 	if a.Status.State != "Stopped" || a.Status.Operation != nil {
 		t.Fatalf("idle stop retained old admission: %+v", a.Status)
 	}
-	r = &Reconciler{Client: r.Client, Scheme: r.Scheme, Namespace: r.Namespace, Name: r.Name, Release: r.Release}
-	a.Spec.Replicas = 1
+	r = &Reconciler{Client: r.Client, Scheme: r.Scheme, Namespace: r.Namespace, Name: r.Name}
+	a.Spec.Running = true
 	a.Generation = 3
 	if err := r.Update(ctx, a); err != nil {
 		t.Fatal(err)
@@ -316,5 +316,133 @@ func TestAddingFirstRepositoryInvalidatesIdleAdmission(t *testing.T) {
 	}
 	if !foundKey {
 		t.Fatal("first repository lifecycle lacks its independent native key")
+	}
+}
+
+func TestStopConsumesOnlyBoundCompleteLifecycleResult(t *testing.T) {
+	for _, fault := range []string{"none", "unfinished", "failed", "missing job", "job UID", "missing admitted UID", "application UID", "operation ID", "PVC annotation", "hash annotation", "PVC UID", "PVC owner", "changed input", "success counter only"} {
+		t.Run(fault, func(t *testing.T) {
+			r, a := fixture(t)
+			ctx := context.Background()
+			a.Status.Operation.Result = "Running"
+			a.Status.State = "Starting"
+			job := r.lifecycleJob(a)
+			job.UID = types.UID(a.Status.Operation.JobUID)
+			job.Spec.Suspend = ptr(false)
+			job.Status.Conditions = []batchv1.JobCondition{{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}}
+			switch fault {
+			case "unfinished":
+				job.Status.Conditions = nil
+			case "failed":
+				job.Status.Conditions = append(job.Status.Conditions, batchv1.JobCondition{Type: batchv1.JobFailed, Status: corev1.ConditionTrue})
+			case "job UID":
+				job.UID = "replacement"
+			case "missing admitted UID":
+				a.Status.Operation.JobUID = ""
+			case "application UID":
+				job.OwnerReferences[0].UID = "replacement"
+			case "operation ID":
+				job.Labels[operationLabel] = "replacement"
+			case "PVC annotation":
+				job.Annotations["restic.bartl.sh/pvc-uid"] = "replacement"
+			case "hash annotation":
+				job.Annotations["restic.bartl.sh/input-hash"] = "replacement"
+			case "PVC UID", "PVC owner":
+				pvc := assertClaimOwner(t, r, string(a.UID))
+				if fault == "PVC UID" {
+					pvc.UID = "replacement"
+				} else {
+					pvc.Annotations[claimOwner] = "replacement"
+				}
+				if err := r.Update(ctx, pvc); err != nil {
+					t.Fatal(err)
+				}
+			case "success counter only":
+				job.Status.Conditions = nil
+				job.Status.Succeeded = 1
+			}
+			if err := r.Status().Update(ctx, a); err != nil {
+				t.Fatal(err)
+			}
+			if fault != "missing job" {
+				if err := r.Create(ctx, job); err != nil {
+					t.Fatal(err)
+				}
+			}
+			// Keep drainage pending so the persisted result can be inspected.
+			pod := activeClaimPod("draining", a.Name)
+			if err := r.Create(ctx, pod); err != nil {
+				t.Fatal(err)
+			}
+			a.Spec.Running = false
+			a.Generation++
+			if fault == "changed input" {
+				a.Spec.Image = "different"
+			}
+			if err := r.Update(ctx, a); err != nil {
+				t.Fatal(err)
+			}
+			a = step(t, r)
+			want := "Failed"
+			if fault == "none" {
+				want = "Succeeded"
+			}
+			if a.Status.State != "Stopping" || a.Status.Operation.Result != want {
+				t.Fatalf("stop consumed wrong result: %+v", a.Status)
+			}
+			noEndpoint(t, r)
+			// Restarting the coordinator cannot reopen access or admit work.
+			r = &Reconciler{Client: r.Client, Scheme: r.Scheme, Namespace: r.Namespace, Name: r.Name}
+			a = step(t, r)
+			noEndpoint(t, r)
+			if a.Spec.Running || a.Status.Operation.Result != want {
+				t.Fatalf("restart changed stopped result: %+v", a)
+			}
+			if err := r.Delete(ctx, pod); err != nil {
+				t.Fatal(err)
+			}
+			a = step(t, r)
+			if fault == "unfinished" || fault == "success counter only" {
+				// Native foreground Job deletion may need another observation.
+				a = step(t, r)
+			}
+			if a.Status.State != "Stopped" {
+				t.Fatalf("stop did not finish: %+v", a.Status)
+			}
+			if fault == "none" && a.Status.Operation != nil {
+				t.Fatal("completed stop must require fresh native observation at explicit start")
+			}
+			if fault != "none" && (a.Status.Operation == nil || a.Status.Operation.Result != "Failed") {
+				t.Fatal("stop discarded failed or uncertain mutation")
+			}
+		})
+	}
+}
+
+func TestStaticChangeAndControllerRestartPreserveStop(t *testing.T) {
+	r, a := fixture(t)
+	a.Spec.Running = false
+	a.Generation++
+	if err := r.Update(context.Background(), a); err != nil {
+		t.Fatal(err)
+	}
+	a = step(t, r)
+	a.Spec.Image = "new-static-configuration"
+	a.Generation++
+	if err := r.Update(context.Background(), a); err != nil {
+		t.Fatal(err)
+	}
+	r = &Reconciler{Client: r.Client, Scheme: r.Scheme, Namespace: r.Namespace, Name: r.Name}
+	a = step(t, r)
+	noEndpoint(t, r)
+	if a.Spec.Running || a.Status.State != "Stopped" || a.Status.Operation != nil {
+		t.Fatalf("static configuration reset runtime intent: %+v", a)
+	}
+	jobs := new(batchv1.JobList)
+	if err := r.List(context.Background(), jobs); err != nil {
+		t.Fatal(err)
+	}
+	if len(jobs.Items) != 0 {
+		t.Fatal("static change started native work while stopped")
 	}
 }

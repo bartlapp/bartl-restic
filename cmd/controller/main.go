@@ -1,9 +1,9 @@
 package main
 
 import (
-	api "github.com/bartlapp/bartl-restic/api/v1alpha1"
-	"github.com/bartlapp/bartl-restic/internal/controller"
 	"fmt"
+	api "github.com/bartlapp/bartl-restic/api/v1alpha2"
+	"github.com/bartlapp/bartl-restic/internal/controller"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -43,7 +43,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	r := &controller.Reconciler{Client: direct, Scheme: scheme, Namespace: ns, Name: name, Release: os.Getenv("HELM_RELEASE")}
+	r := &controller.Reconciler{Client: direct, Scheme: scheme, Namespace: ns, Name: name}
 	if err := r.Setup(mgr); err != nil {
 		return err
 	}

@@ -8,6 +8,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createArtifactDirectory, snapshotSource, persistArtifacts, failureReason } from './artifacts.mjs';
 import { uninstallStoppedApplication } from './removal.mjs';
+import { precreateApplication } from './installation.mjs';
 
 if (process.env.BARTL_RESTIC_LAB !== 'hetzner' || !process.env.KUBECONFIG) {
   console.error('Require BARTL_RESTIC_LAB=hetzner and KUBECONFIG; no infrastructure is created.'); process.exit(2);
@@ -58,9 +59,9 @@ async function state(name, expected, timeout = 600000) {
       && condition?.status === 'True' && condition.observedGeneration === object.metadata.generation ? object : null;
   }, timeout);
 }
-function patch(name, spec) { k(['patch', 'resticapplication', `${name}-restic`, '--field-manager=helm', '--type=merge', '-p', JSON.stringify({ spec })]); }
+function patch(name, spec) { k(['patch', 'resticapplication', `${name}-restic`, '--type=merge', '-p', JSON.stringify({ spec })]); }
 async function stop(name) {
-  patch(name, { replicas: 0 }); await state(name, 'Stopped');
+  patch(name, { running: false }); await state(name, 'Stopped');
   const cronjobs = get('cronjobs').items.filter(object => object.metadata.ownerReferences?.some(owner => owner.uid === app(name).metadata.uid));
   const deployment = get('deployments').items.find(object => object.metadata.name === `${name}-restic`);
   assert(`${name} stop drains endpoint and suspends every copy`, (!deployment || deployment.spec.replicas === 0) && cronjobs.every(job => job.spec.suspend === true));
@@ -73,13 +74,19 @@ async function nativeLocksReleased(phase) {
   assert(`${phase} releases secondary native locks without unlock`, true);
 }
 async function stoppedRestart(name) {
+  const retained = app(name);
+  command('helm', ['upgrade', name, process.env.BARTL_RESTIC_CHART || join(root, 'chart'), '--namespace', namespace,
+    '-f', join(privateDir, `${name}-values.json`), '--wait=legacy', '--timeout', '5m'], {timeout: 330000});
+  await state(name, 'Stopped');
+  assert(`${name} same-release static reapplication preserves stopped CR intent`,
+    app(name).metadata.uid === retained.metadata.uid && app(name).spec.running === false);
   const previous = new Set(get('jobs').items.map(job => job.metadata.uid));
   k(['rollout', 'restart', `deployment/${name}-restic-controller`]);
   k(['rollout', 'status', `deployment/${name}-restic-controller`, '--timeout=3m'], { timeout: 210000 });
   await state(name, 'Stopped'); await noAccess(name);
   await sleep(3000);
   const newCopies = get('jobs').items.filter(job => !previous.has(job.metadata.uid) && job.metadata.name.startsWith(`${name}-restic-copy-`));
-  assert(`${name} controller restart preserves durable stop without new copies`, app(name).spec.replicas === 0 && newCopies.length === 0);
+  assert(`${name} controller restart preserves durable stop without new copies`, app(name).spec.running === false && newCopies.length === 0);
 }
 async function noAccess(name) {
   await until(`${name} no ready Service endpoints`, () => !get('endpointslices').items.filter(slice => slice.metadata.labels?.['kubernetes.io/service-name'] === `${name}-restic`)
@@ -105,6 +112,7 @@ function install(name, values) {
   configurations[name] = values;
   const path = join(privateDir, `${name}-values.json`);
   writeFileSync(path, JSON.stringify({ installation: namespace, services: { restic: values } }), { mode: 0o600 });
+  precreateApplication({command, chart: process.env.BARTL_RESTIC_CHART || join(root, 'chart'), release: name, namespace, valuesFile: path});
   command('helm', ['upgrade', '--install', name, process.env.BARTL_RESTIC_CHART || join(root, 'chart'), '--namespace', namespace, '-f', path, '--wait=legacy', '--timeout', '5m'], { timeout: 330000 });
 }
 const baseValues = (name, recovery) => ({ image, hostname: host(name), ingress: { enabled: false }, tls: { managed: false },
@@ -226,7 +234,7 @@ try {
   assert('second application cannot admit the already-owned PVC', /another application|claim belongs/i.test(competitor.status.reason) && !get('jobs').items.some(job => job.metadata.ownerReferences?.some(owner => owner.uid === competitor.metadata.uid)));
   await stop('competitor');
   const existing = app('primary').spec.repositories.map(repository => ({ ...repository, recovery: { host: 'unreachable.invalid', repository: repository.name, credentialsSecret: 'unavailable' } }));
-  patch('primary', { replicas: 1, repositories: existing }); await state('primary', 'Ready');
+  patch('primary', { running: true, repositories: existing }); await state('primary', 'Ready');
   assert('existing state restarts without recovery credentials or network', JSON.parse(restic('primary', 'reader', 'cat config').stdout).id === identity);
   // Keep the older point in a small independent native pack, so it remains promptly restorable during throttled reconstruction of the much larger newer point.
   exec('primary-client', 'mkdir /fixture; dd if=/dev/urandom of=/fixture/payload bs=1024 count=64');
@@ -298,7 +306,7 @@ try {
       await nativeLocksReleased('stop during recovery');
       await inspectVolume(name, 'test -z \"$(find /data/alpha/locks -type f -print 2>/dev/null)\"; test -f /data/.bartl-transition');
       await stoppedRestart(name);
-      patch(name, { replicas: 1 }); await state(name, 'Failed'); await noAccess(name);
+      patch(name, { running: true }); await state(name, 'Failed'); await noAccess(name);
       assert('stop during recovery remains blocking on ordinary start', true);
     }
   }
@@ -322,7 +330,7 @@ try {
   await stop('retry');
   await inspectVolume('retry', 'mkdir /data/damaged; printf orphan > /data/damaged/orphan');
   const damagedRepositories = [...app('retry').spec.repositories, { name: 'damaged', authSecret: 'retry-auth', passwordSecret: 'retry-key' }];
-  patch('retry', { replicas: 1, repositories: damagedRepositories }); await state('retry', 'Failed'); await noAccess('retry');
+  patch('retry', { running: true, repositories: damagedRepositories }); await state('retry', 'Failed'); await noAccess('retry');
   await stop('retry');
   await inspectVolume('retry', 'test -s /data/damaged/orphan; test ! -e /data/damaged/config; test -s /data/alpha/config');
   assert('damaged nonempty repository blocks entire application without reinitialization', true);

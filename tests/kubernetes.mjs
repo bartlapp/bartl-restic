@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { precreateApplication } from './installation.mjs';
 // Dedicated remote-cluster proof. No local containers or infrastructure provisioning.
 // BARTL_RESTIC_LAB=hetzner KUBECONFIG=/private/kubeconfig node tests/kubernetes.mjs
 // Optional: BARTL_RESTIC_KEEP_NAMESPACE=1, BARTL_RESTIC_EVIDENCE_DIR=/private/path.
@@ -68,8 +69,8 @@ async function applicationState(state) {
       && condition?.status === 'True' && condition.observedGeneration === app.metadata.generation ? app : null;
   }, 600000);
 }
-async function replicas(value) {
-  command('helm', ['upgrade', release, chart, '--namespace', namespace, '--reuse-values', '--set', `services.restic.replicas=${value}`]);
+async function running(value) {
+  kubectl(['patch', 'resticapplication', endpoint, '--type=merge', '-p', JSON.stringify({spec: {running: value}})]);
   await applicationState(value ? 'Ready' : 'Stopped');
 }
 const exec = (container, script, options) => kubectl(['exec', 'client', '-c', container, '--', '/bin/sh', '-ec', script], options);
@@ -170,6 +171,7 @@ try {
   apply({ apiVersion: 'v1', kind: 'PersistentVolumeClaim', metadata: { name: 'repositories' }, spec: { accessModes: ['ReadWriteOnce'], resources: { requests: { storage: '2Gi' } } } });
   evidence.pvcUID = JSON.parse(kubectl(['get', 'pvc', 'repositories', '-o', 'json']).stdout).metadata.uid;
   const rendered = render(); writeFileSync(join(directory, 'endpoint-rendered.yaml'), rendered);
+  precreateApplication({command, chart, release, namespace, valuesFile});
   command('helm', ['upgrade', '--install', release, chart, '--namespace', namespace, '-f', valuesFile, '--wait=legacy', '--timeout', '5m'], { timeout: 330000 });
   await applicationState('Ready');
   const deployed = JSON.parse(kubectl(['get', 'deployment', endpoint, '-o', 'json']).stdout);
@@ -246,7 +248,7 @@ try {
   const repoAfter = JSON.parse(restic('reader', 'cat config').stdout).id;
   assert('replacement preserves PVC UID, repository identity and snapshot', pvcAfter === evidence.pvcUID && repoAfter === evidence.repositoryID && snapshots().some(point => point.id === evidence.snapshotID), { pvcUID: pvcAfter, repositoryID: repoAfter, snapshotID: evidence.snapshotID });
   await restoreAndCompare(evidence.snapshotID, '/restore-after');
-  await replicas(0);
+  await running(false);
   apply({ apiVersion: 'v1', kind: 'Pod', metadata: { name: 'damage' }, spec: { automountServiceAccountToken: false, restartPolicy: 'Never',
     containers: [{ name: 'damage', image: evidence.images.restic, command: ['/bin/sh', '-ec', 'mkdir /data/damaged; printf damaged > /data/damaged/orphan'],
       volumeMounts: [{ name: 'data', mountPath: '/data' }] }], volumes: [{ name: 'data', persistentVolumeClaim: { claimName: 'repositories' } }] } });
@@ -256,13 +258,14 @@ try {
     repositories: [...service.repositories, { name: 'damaged', authSecret: 'alpha-auth', passwordSecret: 'repository-key' }] } } };
   const damagedFile = join(directory, 'damaged-values.json'); writeFileSync(damagedFile, JSON.stringify(damagedValues));
   command('helm', ['upgrade', release, chart, '--namespace', namespace, '-f', damagedFile]);
+  kubectl(['patch', 'resticapplication', endpoint, '--type=merge', '-p', '{"spec":{"running":true}}']);
   const failed = await applicationState('Failed');
   assert('damaged repository fails visibly without implicit initialization', failed.status.state === 'Failed');
   const slices = JSON.parse(kubectl(['get', 'endpointslices', '-l', `kubernetes.io/service-name=${endpoint}`, '-o', 'json']).stdout);
   assert('damaged startup withholds ordinary access', !slices.items.some(slice => slice.endpoints?.some(address => address.conditions?.ready !== false)));
   evidence.status = 'passed';
   if (process.env.BARTL_RESTIC_KEEP_NAMESPACE !== '1') {
-    await replicas(0);
+    await running(false);
     uninstallStoppedApplication({ command, namespace, release });
     kubectl(['delete', 'namespace', namespace, '--wait=true', '--timeout=3m'], { timeout: 210000 });
     evidence.cleanup = 'owned namespace deleted';

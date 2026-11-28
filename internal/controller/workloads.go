@@ -1,11 +1,11 @@
 package controller
 
 import (
-	api "github.com/bartlapp/bartl-restic/api/v1alpha1"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	api "github.com/bartlapp/bartl-restic/api/v1alpha2"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"

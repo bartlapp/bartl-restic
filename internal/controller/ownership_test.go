@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	api "github.com/bartlapp/bartl-restic/api/v1alpha1"
+	api "github.com/bartlapp/bartl-restic/api/v1alpha2"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -53,7 +53,7 @@ func TestRejectedClaimantCanStopAndFinalizeWithOwnerRunning(t *testing.T) {
 					t.Fatal(err)
 				}
 			} else {
-				a.Spec.Replicas = 0
+				a.Spec.Running = false
 				if err := r.Update(ctx, a); err != nil {
 					t.Fatal(err)
 				}
@@ -92,7 +92,7 @@ func TestClaimOwnerWaitsForForeignPVCUser(t *testing.T) {
 	if err := r.Create(ctx, pod); err != nil {
 		t.Fatal(err)
 	}
-	a.Spec.Replicas = 0
+	a.Spec.Running = false
 	if err := r.Update(ctx, a); err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +151,7 @@ func TestChangedClaimOwnerStillWaitsForOwnPodChains(t *testing.T) {
 			if err := r.Create(ctx, pod); err != nil {
 				t.Fatal(err)
 			}
-			a.Spec.Replicas = 0
+			a.Spec.Running = false
 			if err := r.Update(ctx, a); err != nil {
 				t.Fatal(err)
 			}
@@ -184,7 +184,7 @@ func (c unavailableClaimClient) Get(ctx context.Context, key client.ObjectKey, o
 func TestDrainFailsClosedWhenClaimCannotBeRead(t *testing.T) {
 	r, a := fixture(t)
 	ctx := context.Background()
-	a.Spec.Replicas = 0
+	a.Spec.Running = false
 	if err := r.Update(ctx, a); err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +216,7 @@ func TestAbsentClaimDoesNotPreventStop(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			a.Spec.Replicas = 0
+			a.Spec.Running = false
 			if err := r.Update(ctx, a); err != nil {
 				t.Fatal(err)
 			}
@@ -227,6 +227,61 @@ func TestAbsentClaimDoesNotPreventStop(t *testing.T) {
 			}
 			if a.Status.State != want {
 				t.Fatalf("state %s, want %s", a.Status.State, want)
+			}
+		})
+	}
+}
+
+func TestHelmMetadataDoesNotAuthorizeWorkloadAdoption(t *testing.T) {
+	for _, kind := range []string{"Service", "Deployment", "CronJob"} {
+		t.Run(kind, func(t *testing.T) {
+			r, a := fixture(t)
+			ctx := context.Background()
+			meta := metav1.ObjectMeta{Name: a.Name, Namespace: a.Namespace, Annotations: map[string]string{"meta.helm.sh/release-name": "backup", "meta.helm.sh/release-namespace": a.Namespace}}
+			switch kind {
+			case "Service":
+				service := &corev1.Service{ObjectMeta: meta, Spec: corev1.ServiceSpec{Selector: map[string]string{"foreign": "endpoint"}}}
+				if err := r.Create(ctx, service); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := r.drain(ctx, a); err == nil {
+					t.Fatal("drain adopted a Helm-owned Service")
+				}
+				if err := r.Get(ctx, r.key(service.Name), service); err != nil {
+					t.Fatal(err)
+				}
+				if service.Spec.Selector["foreign"] != "endpoint" || len(service.OwnerReferences) != 0 {
+					t.Fatal("foreign Service was changed")
+				}
+			case "Deployment":
+				deployment := &appsv1.Deployment{ObjectMeta: meta, Spec: appsv1.DeploymentSpec{Replicas: ptr(int32(1))}}
+				if err := r.Create(ctx, deployment); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := r.drain(ctx, a); err == nil {
+					t.Fatal("drain adopted a Helm-owned Deployment")
+				}
+				if err := r.Get(ctx, r.key(deployment.Name), deployment); err != nil {
+					t.Fatal(err)
+				}
+				if *deployment.Spec.Replicas != 1 || len(deployment.OwnerReferences) != 0 {
+					t.Fatal("foreign Deployment was changed")
+				}
+			case "CronJob":
+				meta.Name = a.Name + "-copy-foreign"
+				cron := &batchv1.CronJob{ObjectMeta: meta, Spec: batchv1.CronJobSpec{Suspend: ptr(false)}}
+				if err := r.Create(ctx, cron); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := r.drain(ctx, a); err != nil {
+					t.Fatal(err)
+				}
+				if err := r.Get(ctx, r.key(cron.Name), cron); err != nil {
+					t.Fatal(err)
+				}
+				if *cron.Spec.Suspend || len(cron.OwnerReferences) != 0 {
+					t.Fatal("foreign CronJob was adopted or suspended")
+				}
 			}
 		})
 	}

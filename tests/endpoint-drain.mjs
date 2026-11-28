@@ -57,7 +57,7 @@ done`, { record: false, allowFailure: true });
     assert('real incomplete download has an accepted endpoint TLS socket and active nginx worker before stop', /accepted=\d+/.test(accepted.stdout) && /nginx: worker process/.test(accepted.stdout),
       { pack: pack.name, size: pack.size, bytes: Number(flowing.bytes), processes: accepted.stdout });
     const stoppedAt = Date.now();
-    k(['patch', 'resticapplication', application, '--type=merge', '-p', JSON.stringify({ spec: { replicas: 0 } })]);
+    k(['patch', 'resticapplication', application, '--type=merge', '-p', JSON.stringify({ spec: { running: false } })]);
     const refused = await until('guard refuses a new direct PodIP connection during native drain', () => {
       const probe = shell(client, 'curl', `${curl} --connect-timeout 1 --max-time 1 --output /dev/null ${quote(url)}`, { record: false, allowFailure: true, timeout: 5000 });
       if (probe.status !== 7) return null;
@@ -99,13 +99,13 @@ done`, { record: false, allowFailure: true });
   }
   const stopped = await until('drain fixture reaches current-generation Stopped', () => {
     const object = get('resticapplication', application, { record: false });
-    return object.spec.replicas === 0 && object.status?.state === 'Stopped' && object.status.observedGeneration === object.metadata.generation ? object : null;
+    return object.spec.running === false && object.status?.state === 'Stopped' && object.status.observedGeneration === object.metadata.generation ? object : null;
   }, 180000);
   const deployment = get('deployment', application, { record: false });
   const replicasets = get('replicasets', null, { record: false }).items.filter(object =>
     object.metadata.ownerReferences?.some(owner => owner.uid === deployment.metadata.uid));
-  assert('resumed controller acknowledges fully drained endpoint while durable stop intent remains zero',
-    stopped.spec.replicas === 0 && deployment.spec.replicas === 0 && (deployment.status?.replicas || 0) === 0 &&
+  assert('resumed controller acknowledges fully drained endpoint while durable stopped intent remains false',
+    stopped.spec.running === false && deployment.spec.replicas === 0 && (deployment.status?.replicas || 0) === 0 &&
     replicasets.every(object => object.spec.replicas === 0 && (object.status?.replicas || 0) === 0) &&
     !get('pods', null, { record: false }).items.some(object => object.metadata.labels?.['app.kubernetes.io/name'] === application),
     { generation: stopped.metadata.generation });

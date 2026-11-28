@@ -1,4 +1,4 @@
-package v1alpha1
+package v1alpha2
 
 import (
 	"slices"
@@ -8,7 +8,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-var GroupVersion = schema.GroupVersion{Group: "restic.bartl.sh", Version: "v1alpha1"}
+var GroupVersion = schema.GroupVersion{Group: "restic.bartl.sh", Version: "v1alpha2"}
 
 func AddToScheme(s *runtime.Scheme) error {
 	s.AddKnownTypes(GroupVersion, &ResticApplication{}, &ResticApplicationList{})
@@ -38,7 +38,7 @@ type Replication struct {
 	ActiveDeadlineSeconds   int64  `json:"activeDeadlineSeconds,omitempty"`
 }
 type Spec struct {
-	Replicas      int32         `json:"replicas"`
+	Running       bool          `json:"running"`
 	ExistingClaim string        `json:"existingClaim"`
 	TLSSecret     string        `json:"tlsSecret"`
 	Image         string        `json:"image"`

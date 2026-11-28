@@ -107,7 +107,7 @@ func TestServeRevocationStopsRunningProcess(t *testing.T) {
 					app := admittedApplication("serve")
 					app.Status.State = "Starting"
 					if phase > 0 && (reason == "stop" || reason == "revoked application with failed PVC") {
-						app.Spec.Replicas = 0
+						app.Spec.Running = false
 					}
 					json.NewEncoder(w).Encode(app)
 					return
@@ -163,7 +163,7 @@ func TestServeRetainsSameProcessDuringUnavailableObservation(t *testing.T) {
 				if r.URL.Path == "/app" {
 					app := admittedApplication("serve")
 					if phase == 2 {
-						app.Spec.Replicas = 0
+						app.Spec.Running = false
 					}
 					json.NewEncoder(w).Encode(app)
 					return

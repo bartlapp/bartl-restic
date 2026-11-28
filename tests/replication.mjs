@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { precreateApplication } from './installation.mjs';
 // Dedicated Hetzner K3s proof; never provisions infrastructure or starts local containers.
 // BARTL_RESTIC_LAB=hetzner KUBECONFIG=/private/kubeconfig node tests/replication.mjs
 import { spawnSync } from 'node:child_process';
@@ -70,7 +71,7 @@ async function applicationState(name, state) {
   }, 600000);
 }
 async function stop(name) {
-  kubectl(['patch', 'resticapplication', `${name}-restic`, '--field-manager=helm', '--type=merge', '-p', '{"spec":{"replicas":0}}']);
+  kubectl(['patch', 'resticapplication', `${name}-restic`, '--type=merge', '-p', '{"spec":{"running":false}}']);
   await applicationState(name, 'Stopped');
 }
 const exec = (pod, script, options) => kubectl(['exec', pod, '--', '/bin/sh', '-ec', script], options);
@@ -181,6 +182,7 @@ try {
     writeFileSync(valuesFile, JSON.stringify({ installation: namespace, services: { restic: values } }, null, 2) + '\n');
     const args = [name, chart, '--namespace', namespace, '-f', valuesFile];
     writeFileSync(join(directory, `${name}-rendered.yaml`), command('helm', ['template', ...args]).stdout);
+    precreateApplication({command, chart, release: name, namespace, valuesFile});
     command('helm', ['upgrade', '--install', ...args, '--wait=legacy', '--timeout', '5m'], { timeout: 330000 });
     await applicationState(name, 'Ready');
     const deployed = JSON.parse(kubectl(['get', 'deployment', endpoints[name].deployment, '-o', 'json']).stdout);

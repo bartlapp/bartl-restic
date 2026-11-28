@@ -6,13 +6,14 @@ import (
 	"reflect"
 	"testing"
 
-	api "github.com/bartlapp/bartl-restic/api/v1alpha1"
+	api "github.com/bartlapp/bartl-restic/api/v1alpha2"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -203,7 +204,7 @@ func assertObservationDrained(t *testing.T, c client.Client, r *Reconciler) {
 func TestStopDrainsDespiteUnavailablePVCObservation(t *testing.T) {
 	r, a := readyObservationFixture(t)
 	ctx := context.Background()
-	a.Spec.Replicas = 0
+	a.Spec.Running = false
 	a.Generation++
 	if err := r.Update(ctx, a); err != nil {
 		t.Fatal(err)
@@ -252,5 +253,111 @@ func TestUnverifiedAndRunningObservationFailuresRemainFailClosed(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestCompletedStopObservationFailureStillWithdrawsAccess(t *testing.T) {
+	r, a := readyObservationFixture(t)
+	ctx := context.Background()
+	a.Status.Operation.Result = "Running"
+	job := r.lifecycleJob(a)
+	job.UID = types.UID(a.Status.Operation.JobUID)
+	job.Spec.Suspend = ptr(false)
+	job.Status.Conditions = []batchv1.JobCondition{{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}}
+	if err := r.Create(ctx, job); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Status().Update(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	a.Spec.Running = false
+	a.Generation++
+	if err := r.Update(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	base := r.Client
+	r.Client = &unavailableObservationClient{Client: base, kind: "Secret", err: errors.New("observation unavailable")}
+	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: r.key(r.Name)}); err == nil {
+		t.Fatal("unknown completion inputs were accepted")
+	}
+	deployment := new(appsv1.Deployment)
+	if err := base.Get(ctx, r.key(a.Name), deployment); err != nil {
+		t.Fatal(err)
+	}
+	service := new(corev1.Service)
+	if err := base.Get(ctx, r.key(a.Name), service); err != nil {
+		t.Fatal(err)
+	}
+	if *deployment.Spec.Replicas != 0 || service.Spec.Selector[appLabel] != "stopped-"+string(a.UID) {
+		t.Fatal("completion observation outage postponed stop authority")
+	}
+	if err := base.Get(ctx, r.key(a.Name), a); err != nil {
+		t.Fatal(err)
+	}
+	if a.Status.Operation.Result != "Running" {
+		t.Fatal("observation outage falsely classified native completion")
+	}
+	retained := new(batchv1.Job)
+	if err := base.Get(ctx, r.key(job.Name), retained); err != nil {
+		t.Fatal("stop discarded completed evidence during observation outage: ", err)
+	}
+	if retained.UID != job.UID || retained.DeletionTimestamp != nil {
+		t.Fatal("stop replaced or deleted completed lifecycle evidence")
+	}
+	r.Client = base
+	a = step(t, r)
+	if a.Status.Operation == nil || a.Status.Operation.Result != "Succeeded" || a.Spec.Running {
+		t.Fatalf("completion was not retained while endpoint drains: %+v", a.Status)
+	}
+	// Model the native Deployment finishing its requested stop.
+	if err := base.Get(ctx, r.key(a.Name), deployment); err != nil {
+		t.Fatal(err)
+	}
+	deployment.Status = appsv1.DeploymentStatus{ObservedGeneration: deployment.Generation}
+	if err := base.Status().Update(ctx, deployment); err != nil {
+		t.Fatal(err)
+	}
+	a = step(t, r)
+	if a.Status.State != "Stopped" || a.Status.Operation != nil {
+		t.Fatalf("recovered completion did not permit a clean stop: %+v", a.Status)
+	}
+	a.Spec.Running = true
+	a.Generation++
+	if err := base.Update(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	a = step(t, r)
+	if a.Status.Operation == nil || a.Status.Operation.ID == "old-operation" || a.Status.Operation.Result != "Running" {
+		t.Fatalf("explicit start could not admit fresh native observation: %+v", a.Status)
+	}
+	fresh := r.lifecycleJob(a)
+	// The fake API does not assign Job UIDs. Model that native binding before
+	// reporting the fresh observation's actual completion.
+	if err := base.Get(ctx, r.key(fresh.Name), fresh); err != nil {
+		t.Fatal(err)
+	}
+	fresh.UID = "fresh-job-uid"
+	if err := base.Update(ctx, fresh); err != nil {
+		t.Fatal(err)
+	}
+	a = step(t, r)
+	a = step(t, r)
+	if err := base.Get(ctx, r.key(fresh.Name), fresh); err != nil {
+		t.Fatal(err)
+	}
+	fresh.Status.Conditions = []batchv1.JobCondition{{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}}
+	if err := base.Status().Update(ctx, fresh); err != nil {
+		t.Fatal(err)
+	}
+	a = step(t, r)
+	if a.Status.Operation.Result != "Succeeded" {
+		t.Fatalf("fresh native observation could not complete: %+v", a.Status)
+	}
+	a = step(t, r)
+	if err := base.Get(ctx, r.key(a.Name), deployment); err != nil {
+		t.Fatal(err)
+	}
+	if deployment.Spec.Replicas == nil || *deployment.Spec.Replicas != 1 {
+		t.Fatal("explicit start did not resume the endpoint after fresh success")
 	}
 }

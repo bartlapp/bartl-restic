@@ -1,12 +1,12 @@
 package controller
 
 import (
-	api "github.com/bartlapp/bartl-restic/api/v1alpha1"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	api "github.com/bartlapp/bartl-restic/api/v1alpha2"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -31,8 +31,8 @@ const finalizer = "restic.bartl.sh/drain"
 
 type Reconciler struct {
 	client.Client
-	Scheme                   *runtime.Scheme
-	Namespace, Name, Release string
+	Scheme          *runtime.Scheme
+	Namespace, Name string
 }
 
 func (r *Reconciler) Setup(m ctrl.Manager) error {
@@ -68,12 +68,24 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		return again, r.Update(ctx, a)
 	}
 	// Closing access and stopping scheduled work precedes every lifecycle decision.
-	running := a.Spec.Replicas == 1 && a.DeletionTimestamp.IsZero()
+	running := a.Spec.Running && a.DeletionTimestamp.IsZero()
 	if !running {
 		if a.Status.Operation != nil && a.Status.Operation.Result == "Running" {
-			a.Status.Operation.Result = "Failed"
-			a.Status.Operation.Reason = "Lifecycle operation was interrupted by stop intent"
-			if err := r.status(ctx, a, "Stopping", "Cancelling admitted lifecycle operation"); err != nil {
+			completed, err := r.completedAtStop(ctx, a)
+			if err != nil {
+				// Observation failure must not postpone withdrawing runtime authority.
+				if _, drainErr := r.drain(ctx, a); drainErr != nil {
+					return again, drainErr
+				}
+				return again, err
+			}
+			if completed {
+				a.Status.Operation.Result = "Succeeded"
+			} else {
+				a.Status.Operation.Result = "Failed"
+				a.Status.Operation.Reason = "Lifecycle operation was interrupted by stop intent"
+			}
+			if err := r.status(ctx, a, "Stopping", "Ending admitted lifecycle operation without starting work"); err != nil {
 				return again, err
 			}
 		}
@@ -242,6 +254,50 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	return again, nil
 }
 
+// completedAtStop consumes only an already completed, fully bound native result.
+// Stop changes the application generation, but not the admitted static input hash.
+// It never creates, unsuspends or retries a Job.
+func (r *Reconciler) completedAtStop(ctx context.Context, a *api.ResticApplication) (bool, error) {
+	op := a.Status.Operation
+	if op.ID == "" || op.JobUID == "" || op.InputHash == "" || op.Generation < 1 || op.Generation > a.Generation {
+		return false, nil
+	}
+	job := new(batchv1.Job)
+	if err := r.Get(ctx, r.key(op.JobName), job); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	if !metav1.IsControlledBy(job, a) || string(job.UID) != op.JobUID || job.Labels[operationLabel] != op.ID || job.Annotations["restic.bartl.sh/pvc-uid"] != op.PVCUID || job.Annotations["restic.bartl.sh/input-hash"] != op.InputHash {
+		return false, nil
+	}
+	complete := false
+	for _, condition := range job.Status.Conditions {
+		if condition.Status != corev1.ConditionTrue {
+			continue
+		}
+		if condition.Type == batchv1.JobFailed {
+			return false, nil
+		}
+		if condition.Type == batchv1.JobComplete {
+			complete = true
+		}
+	}
+	if !complete {
+		return false, nil
+	}
+	pvc := new(corev1.PersistentVolumeClaim)
+	if err := r.Get(ctx, r.key(a.Spec.ExistingClaim), pvc); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	if pvc.DeletionTimestamp != nil || string(pvc.UID) != op.PVCUID || pvc.Annotations[claimOwner] != string(a.UID) {
+		return false, nil
+	}
+	hash, err := r.inputHash(ctx, a, pvc)
+	if err != nil {
+		return false, err
+	}
+	return hash == op.InputHash, nil
+}
+
 // releaseClaim is only called after deletion drainage. An ordinary stop retains
 // both the claim fence and finalizer; failed native work retains its fence even
 // when the application itself can be deleted.
@@ -297,7 +353,7 @@ func (r *Reconciler) fail(ctx context.Context, a *api.ResticApplication, reason 
 }
 func (r *Reconciler) inputHash(ctx context.Context, a *api.ResticApplication, pvc *corev1.PersistentVolumeClaim) (string, error) {
 	s := a.Spec
-	s.Replicas = 0
+	s.Running = false
 	s.Replication = nil
 	b, _ := json.Marshal(s)
 	h := sha256.New()
@@ -317,17 +373,11 @@ func (r *Reconciler) inputHash(ctx context.Context, a *api.ResticApplication, pv
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
-func (r *Reconciler) adopt(ctx context.Context, a *api.ResticApplication, obj client.Object) error {
-	if metav1.IsControlledBy(obj, a) {
-		return nil
+func requireOwner(a *api.ResticApplication, obj client.Object) error {
+	if !metav1.IsControlledBy(obj, a) {
+		return fmt.Errorf("refusing object %s not owned by the current application", obj.GetName())
 	}
-	if len(obj.GetOwnerReferences()) != 0 {
-		return fmt.Errorf("refusing foreign owner on %s", obj.GetName())
-	}
-	if obj.GetAnnotations()["meta.helm.sh/release-name"] != r.Release || obj.GetAnnotations()["meta.helm.sh/release-namespace"] != a.Namespace {
-		return fmt.Errorf("refusing non-baseline object %s", obj.GetName())
-	}
-	return ctrl.SetControllerReference(a, obj, r.Scheme)
+	return nil
 }
 func (r *Reconciler) apply(ctx context.Context, a *api.ResticApplication, obj client.Object, mutate func()) error {
 	err := r.Get(ctx, r.key(obj.GetName()), obj)
@@ -335,7 +385,7 @@ func (r *Reconciler) apply(ctx context.Context, a *api.ResticApplication, obj cl
 		return err
 	}
 	if err == nil {
-		if err := r.adopt(ctx, a, obj); err != nil {
+		if err := requireOwner(a, obj); err != nil {
 			return err
 		}
 	} else {
@@ -352,7 +402,7 @@ func (r *Reconciler) apply(ctx context.Context, a *api.ResticApplication, obj cl
 func (r *Reconciler) drain(ctx context.Context, a *api.ResticApplication) (bool, error) {
 	svc := new(corev1.Service)
 	if err := r.Get(ctx, r.key(a.Name), svc); err == nil {
-		if err := r.adopt(ctx, a, svc); err != nil {
+		if err := requireOwner(a, svc); err != nil {
 			return false, err
 		}
 		svc.Spec.Selector = map[string]string{appLabel: "stopped-" + string(a.UID)}
@@ -368,11 +418,8 @@ func (r *Reconciler) drain(ctx context.Context, a *api.ResticApplication) (bool,
 	}
 	for i := range crons.Items {
 		c := &crons.Items[i]
-		if !metav1.IsControlledBy(c, a) && !(strings.HasPrefix(c.Name, a.Name+"-copy-") && c.Annotations["meta.helm.sh/release-name"] == r.Release) {
+		if !metav1.IsControlledBy(c, a) {
 			continue
-		}
-		if err := r.adopt(ctx, a, c); err != nil {
-			return false, err
 		}
 		c.Spec.Suspend = ptr(true)
 		if err := r.Update(ctx, c); err != nil {
@@ -382,7 +429,7 @@ func (r *Reconciler) drain(ctx context.Context, a *api.ResticApplication) (bool,
 	settled := true
 	d := new(appsv1.Deployment)
 	if err := r.Get(ctx, r.key(a.Name), d); err == nil {
-		if err := r.adopt(ctx, a, d); err != nil {
+		if err := requireOwner(a, d); err != nil {
 			return false, err
 		}
 		d.Spec.Replicas = ptr(int32(0))
@@ -405,7 +452,7 @@ func (r *Reconciler) drain(ctx context.Context, a *api.ResticApplication) (bool,
 		owned := metav1.IsControlledBy(j, a)
 		for _, ref := range j.OwnerReferences {
 			for _, c := range crons.Items {
-				if ref.UID == c.UID && (metav1.IsControlledBy(&c, a) || strings.HasPrefix(c.Name, a.Name+"-copy-") && c.Annotations["meta.helm.sh/release-name"] == r.Release) {
+				if ref.UID == c.UID && metav1.IsControlledBy(&c, a) {
 					owned = true
 				}
 			}

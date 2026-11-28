@@ -22,7 +22,6 @@
     "intent": {
       "type": "object", "additionalProperties": true,
       "properties": {
-        "replicas": {"type": "integer", "minimum": 0, "maximum": 1},
         "ingressEnabled": {"type": "boolean"}
       }
     },
@@ -170,11 +169,6 @@
               }
             }
           ]
-        },
-        "replicas": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 1
         },
         "release": {
           "type": "string",

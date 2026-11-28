@@ -19,7 +19,7 @@ Use the [operator tools](https://github.com/bartlapp/bartl-app/blob/main/docs/op
 
 Start with its version-1 installation record, complete resource references and retained cluster access. Base or the cluster administrator supplies these; do not initialize another record or merely add a version field to an old one. No company tooling, password store or other Bartl service is required.
 
-Release **[0.3.1](https://github.com/bartlapp/bartl-restic/releases/tag/v0.3.1)** adds deployment selection. The commands below require that interface, absent from [0.3.0](https://github.com/bartlapp/bartl-restic/releases/tag/v0.3.0). The package uses the unchanged rest-server 0.14.0, nginx 1.28.0 and Restic 0.19.1 runtime.
+This checkout is source candidate **0.4.0-dev.1**, introducing `ResticApplication` `v1alpha2` and CR-owned `spec.running`. It is **not ready to install or publish**: the controller image still identifies the published 0.3.1 build, not this source. A real image build, retained chart and live qualification are pending. The commands below describe the candidate interface. For the published **[0.3.1 release](https://github.com/bartlapp/bartl-restic/releases/tag/v0.3.1)** use its [version-bound procedure](https://github.com/bartlapp/bartl-restic/blob/v0.3.1/README.md); its evidence does not qualify this change. Native versions remain rest-server 0.14.0, nginx 1.28.0 and Restic 0.19.1.
 
 Use direnv-hooked Bash and the prepared cluster directory. For an external cluster, use the shared [supplied cluster access](https://github.com/bartlapp/bartl-app/blob/main/docs/operator-workstation.md#use-supplied-cluster-access) procedure; no Hetzner machine fields are needed.
 
@@ -29,14 +29,14 @@ Select the prepared cluster directory:
 cd "${WORK_DIR_ROOT:-$HOME/bartl}/acme/acme-installation/clusters/cluster-1"
 ```
 
-Acquire the latest stable chart. Helm excludes prereleases by default:
+Once this candidate has independently retrievable, qualified artifacts, select that exact version explicitly. Do not use an unversioned pull: it selects the older stable API. Until then, only the retained-candidate qualification path below applies:
 
 ```bash
 set -euo pipefail
 umask 077
 mkdir -p "$WORK_DIR/packages"
 CHART_STAGE=$(mktemp -d "$WORK_DIR/packages/.restic.XXXXXX")
-helm pull oci://ghcr.io/bartlapp/bartl-restic --untar --untardir "$CHART_STAGE"
+helm pull oci://ghcr.io/bartlapp/bartl-restic --version 0.4.0-dev.1 --untar --untardir "$CHART_STAGE"
 export PACKAGE_VERSION
 PACKAGE_VERSION=$(helm show chart "$CHART_STAGE/bartl-restic" | yq -er '.version')
 ```
@@ -185,7 +185,7 @@ For a **new secondary endpoint only**, give its repository a recovery source bef
 ```bash
 export RECOVERY_HOST=primary.example.org
 export RECOVERY_REPOSITORY=records
-export RECOVERY_INPUTS=/protected/primary/reader
+export RECOVERY_INPUTS="$INSTALL_DIR/protected/credentials/$REPOSITORY-primary-reader"
 export RECOVERY_SECRET="$REPOSITORY-primary-reader"
 yq -i '(.services[strenv(INSTANCE)].repositories[] | select(.name == strenv(REPOSITORY))).recovery = {
   "host": strenv(RECOVERY_HOST), "repository": strenv(RECOVERY_REPOSITORY),
@@ -201,22 +201,55 @@ The native worker initializes with copied chunker parameters, copies history and
 
 For an idle endpoint, no repository credentials or CA input are needed. For a populated endpoint, the native worker initializes new repositories; do not run restic init yourself.
 
+### Create application intent
+
+Create a full new application once, with explicit target intent. New endpoints default to running; select `INITIAL_RUNNING=false` for an initially stopped endpoint. Replacement and retained-state reinstall select their own new intent, never copy the source CR. The API is a clean cutover: no adoption/conversion of old management resources. If the installed cluster-wide CRD cannot support this candidate and all remaining controllers, use a new target cluster.
+
+```bash
+export INITIAL_RUNNING=true
+kubectl --context "$KUBE_CONTEXT" get crd resticapplications.restic.bartl.sh \
+  --ignore-not-found -o json > "$INSTALL_DIR/installed-crd.json"
+if [ -s "$INSTALL_DIR/installed-crd.json" ]; then
+  jq -e 'any(.spec.versions[]; .name == "v1alpha2" and .served and .storage)' "$INSTALL_DIR/installed-crd.json"
+else
+  kubectl --context "$KUBE_CONTEXT" create -f "$CHART/crds/resticapplications.yaml"
+fi
+kubectl --context "$KUBE_CONTEXT" wait crd/resticapplications.restic.bartl.sh \
+  --for=condition=Established --timeout=60s
+helm template "$RELEASE" "$CHART" --namespace "$NS" -f "$VALUES" \
+  --set-string deployment="$DEPLOYMENT" --show-only templates/application.yaml |
+  yq '.metadata.namespace = strenv(NS) |
+    .metadata.annotations."meta.helm.sh/release-name" = strenv(RELEASE) |
+    .metadata.annotations."meta.helm.sh/release-namespace" = strenv(NS) |
+    .spec.running = (strenv(INITIAL_RUNNING) == "true")' |
+  kubectl --context "$KUBE_CONTEXT" create -f -
+```
+
+`kubectl create` rejects occupied targets; do not substitute apply. Inspect CRD semantics, not just its version name. Lookup errors stop this procedure rather than implying absence. Helm's ownership metadata allows the static release to manage this CR without owning `running`.
+
+### Install static configuration
+
+Install without resetting the precreated intent:
+
 ```bash
 helm install "$RELEASE" "$CHART" --kube-context "$KUBE_CONTEXT" -n "$NS" -f "$VALUES" \
   --set-string deployment="$DEPLOYMENT" --wait=legacy --timeout=5m
 if yq -e '.services[strenv(INSTANCE)].endpoints.https.tlsManaged' "$INSTALL_DIR/restic-connections.yaml" >/dev/null; then
   kubectl --context "$KUBE_CONTEXT" -n "$NS" wait "certificate/$TLS_SECRET" --for=condition=Ready --timeout=10m
 fi
-kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic --for=condition=Ready --timeout=30m
+if [ "$INITIAL_RUNNING" = true ]; then CONDITION=Ready; else CONDITION=Stopped; fi
+kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic --for="condition=$CONDITION" --timeout=30m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o json | \
   jq -e '.metadata.generation as $g | .status.observedGeneration == $g and
-    any(.status.conditions[]; .type == "Ready" and .status == "True" and .observedGeneration == $g)'
-JOB=$(kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o jsonpath='{.status.operation.jobName}')
-kubectl --context "$KUBE_CONTEXT" -n "$NS" logs "job/$JOB"
+    any(.status.conditions[]; .type == $CONDITION and .status == "True" and .observedGeneration == $g)' --arg CONDITION "$CONDITION"
+if [ "$INITIAL_RUNNING" = true ]; then
+  JOB=$(kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o jsonpath='{.status.operation.jobName}')
+  kubectl --context "$KUBE_CONTEXT" -n "$NS" logs "job/$JOB"
+fi
 kubectl --context "$KUBE_CONTEXT" -n "$NS" get pods,service,certificate
 ```
 
-Helm waits for controller infrastructure, not application acceptance. Require current-generation Ready and trusted HTTPS. For an idle endpoint, check HTTP 404 without disabling certificate verification:
+Helm waits for controller infrastructure, not application acceptance. Native condition waits check the condition's observed generation against the live object; the JSON check also checks current-generation acknowledgement. An initially stopped endpoint must have no executing endpoint/lifecycle/copy Pods; perform HTTPS/repository acceptance after explicit start. For running endpoints require current-generation Ready and trusted HTTPS. For an idle endpoint, check HTTP 404 without disabling certificate verification:
 
 ```bash
 curl --silent --show-error -o /dev/null -w '%{http_code}\n' "https://$RESTIC_HOST/"
@@ -271,8 +304,11 @@ Keep `installation.yaml` and the deployment selector. Protect the following file
 | `protected/repositories/<name>/{htpasswd,writer.restPassword,reader.restPassword,admin.restPassword}` | Instance-wide authentication; retain the existing hashes. Admin authority stays with endpoint maintenance. |
 | `protected/ca.crt` | Trust bundle used by native clients and credential Secrets. |
 | `tls/{fullchain.pem,key.pem}` | Deployment TLS inputs when external certificates are selected; managed certificates are issued on the target. |
+| `protected/credentials/<secretName>/{username,restPassword,password,ca.crt}` | Instance-wide supplied recovery-reader or replication-writer inputs, keyed by the retained Secret name. |
 
-Keep independently supplied recovery-reader and replication-writer input directories with their retained Secret references too. Retrieve the original repository keys/passwords before replacement or reinstall; never regenerate them to make a missing input disappear. Keep chart caches, rendered declarations, logs and plaintext files out of Git. Retain temporary receipts needed by an active operation, not a permanent installation success log.
+Materialize supplied recovery-reader and replication-writer files at `protected/credentials/<secretName>/`, where `<secretName>` is the existing repository recovery or copy destination `credentialsSecret`. Retrieve all four files from independent custody before creating the runtime Secret; do not infer one endpoint's credentials from another. Retrieve the original repository keys/passwords before replacement or reinstall; never regenerate them to make a missing input disappear. Keep chart caches, rendered declarations, logs and plaintext files out of Git. Retain temporary receipts needed by an active operation, not a permanent installation success log.
+
+Keep an independently decryptable custody copy of this complete input set, the selected immutable chart/images, cluster access, DNS authorization and secondary history outside the primary failure/admin domain. No `pass` installation is required: use the customer-authorized encrypted store or offline encrypted medium and document how its successor retrieves the files into these exact protected paths. Keep its decryption key and access grants usable without the lost workstation, cluster or endpoint. Before handover, have the successor retrieve the retained files without displaying secrets, use the scoped reader and encryption key to restore an older point from the secondary, and verify a new writer/reader round-trip on the accepted endpoint. Retain the tested access references, package identities, primary/secondary URLs, namespace/release/claim bindings, retention/hold decisions and named operating/alerting owners with the installation record. A copy that only its original author can decrypt is not custody.
 
 ## Resume an existing deployment
 
@@ -321,18 +357,17 @@ TLS_SECRET=$(yq -er '.credentials.bindings[strenv(INSTANCE)].tls.secretName' "$I
 CLAIM=$(yq -er '.storage.claims[strenv(INSTANCE)].repository.claimName' "$INSTALL_DIR/restic-connections.yaml")
 ```
 
-The selected 0.3.1 chart resolves the retained deployment, checks its namespace, release and package version against Helm, and applies only its recorded operation intent to the selected service. This also keeps connection declarations aligned with runtime, including explicit false/zero. Direct `instance` selection remains available for standalone values without a deployment record. Repeat this preparation after switching deployments; package-local declaration files are refreshed here, not by the context loader.
+The selected candidate chart resolves the retained deployment, checks its namespace, release and package version against Helm, and applies only static `ingressEnabled` overrides. Runtime intent belongs solely to the application CR. Direct `instance` selection remains available for standalone values without a deployment record. Repeat chart preparation only for static Helm/declaration operations after switching deployments.
 
 Continue with the selected operation.
 
 ## Stop and start
 
-First [prepare chart-backed operations](#prepare-chart-backed-operations). Export needed lifecycle/copy logs before stopping: cancellation deletes Jobs and their Pods. Keep other operators/reconcilers from changing intent during the operation.
+First [load retained context](#load-retained-context). No chart preparation, connection rendering or installation-value change is needed. Export needed lifecycle/copy logs before stopping: ending active work may delete Jobs and their Pods. Keep other operators/reconcilers from changing intent during the operation.
 
 ```bash
-yq -i '.operations.deployments[strenv(DEPLOYMENT)].replicas = 0' "$VALUES"
-helm upgrade "$RELEASE" "$CHART" --kube-context "$KUBE_CONTEXT" -n "$NS" --reset-values -f "$VALUES" \
-  --set-string deployment="$DEPLOYMENT" --wait=legacy --timeout=5m
+kubectl --context "$KUBE_CONTEXT" -n "$NS" patch resticapplication/backup-restic \
+  --type=merge -p '{"spec":{"running":false}}'
 kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic --for=condition=Stopped --timeout=30m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o json | \
   jq -e '.metadata.generation as $g | .status.observedGeneration == $g and
@@ -340,14 +375,13 @@ kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -
 kubectl --context "$KUBE_CONTEXT" -n "$NS" get pods,jobs,cronjobs
 ```
 
-Require no active endpoint, lifecycle or copy Pods. Stop withdraws serving, suspends copy admission and cancels active native work. Failed work remains failed; a stop request or unreachable API is not confirmed retirement. An already admitted endpoint can continue serving through API observation loss indefinitely; independent retirement is required if confirmed drainage is unavailable.
+Require no active endpoint, lifecycle or copy Pods. Stop withdraws serving, suspends copy admission and safely ends active native work. Incomplete mutation remains failed; an unambiguously bound completed native success may be retained, but cannot reopen writers while stopped. A stop request or unreachable API is not confirmed retirement. An already admitted endpoint can continue serving through API observation loss indefinitely; independent retirement is required if confirmed drainage is unavailable.
 
 Start the same deployment again:
 
 ```bash
-yq -i '.operations.deployments[strenv(DEPLOYMENT)].replicas = 1' "$VALUES"
-helm upgrade "$RELEASE" "$CHART" --kube-context "$KUBE_CONTEXT" -n "$NS" --reset-values -f "$VALUES" \
-  --set-string deployment="$DEPLOYMENT" --wait=legacy --timeout=5m
+kubectl --context "$KUBE_CONTEXT" -n "$NS" patch resticapplication/backup-restic \
+  --type=merge -p '{"spec":{"running":true}}'
 kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic --for=condition=Ready --timeout=30m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o json | \
   jq -e '.metadata.generation as $g | .status.observedGeneration == $g and
@@ -435,7 +469,7 @@ export COPY=secondary
 export REPOSITORY=records
 export SECONDARY_HOST=secondary.example.org
 export SECONDARY_REPOSITORY=records
-export SECONDARY_INPUTS=/protected/secondary/writer
+export SECONDARY_INPUTS="$INSTALL_DIR/protected/credentials/$REPOSITORY-replication-$COPY"
 export COPY_SCHEDULE='*/15 * * * *'
 export COPY_SECRET="$REPOSITORY-replication-$COPY"
 KEY=$(yq -er '.backup.providers[strenv(INSTANCE)].repositories[strenv(REPOSITORY)].passwordSecret' "$INSTALL_DIR/restic-connections.yaml")
@@ -503,13 +537,13 @@ Starting condition: independently retained configuration, original primary crede
 
 For a reachable source, [prepare its chart-backed operations](#prepare-chart-backed-operations), stop consumer publication and finish/verify final secondary copies before the endpoint stop. Preserve logs and confirm current-generation drainage. For a lost source, enforce retirement independently, including a returning predecessor; unreachability and DNS changes do not fence it. If retirement cannot be established, do not activate the target.
 
-Acquire the latest stable release while the source remains selected. Reuse a matching package entry; select an unused key only for a different artifact:
+Acquire the explicitly selected candidate target artifact while the source remains selected, only after its build and qualification prerequisites above are met. Reuse a matching package entry; select an unused key only for a different artifact:
 
 ```bash
 export TARGET_PACKAGE=restic-replacement
 mkdir -p "$WORK_DIR/packages"
 TARGET_STAGE=$(mktemp -d "$WORK_DIR/packages/.restic.XXXXXX")
-helm pull oci://ghcr.io/bartlapp/bartl-restic --untar --untardir "$TARGET_STAGE"
+helm pull oci://ghcr.io/bartlapp/bartl-restic --version 0.4.0-dev.1 --untar --untardir "$TARGET_STAGE"
 export TARGET_VERSION
 TARGET_VERSION=$(helm show chart "$TARGET_STAGE/bartl-restic" | yq -er '.version')
 MATCHING_PACKAGE=$(yq -o=json '.packages // {}' "$VALUES" |
@@ -520,15 +554,15 @@ if [ -n "$MATCHING_PACKAGE" ]; then TARGET_PACKAGE="$MATCHING_PACKAGE"; fi
 
 ### Retire the reachable source
 
-Skip this step only for an already retired/lost source with independently enforced retirement. Final required copies must already be verified; stop cancels active copies:
+This block operates a source already using the candidate API. For an older source, use its release-bound stop/removal interface and recorded chart, not this candidate's static chart or CR patch; preserve the same source directory and identities for the target preparation below. Skip source stop only for an already retired/lost source with independently enforced retirement. Final required copies must already be verified; stop ends active copies.
 
 ```bash
 export SOURCE_DEPLOYMENT="$DEPLOYMENT"
 export SOURCE_DIR="$INSTALL_DIR"
-yq -i '
-  .operations.deployments[strenv(DEPLOYMENT)].replicas = 0 |
-  .operations.deployments[strenv(DEPLOYMENT)].ingressEnabled = false
-' "$VALUES"
+kubectl --context "$KUBE_CONTEXT" -n "$NS" patch resticapplication/backup-restic \
+  --type=merge -p '{"spec":{"running":false}}'
+kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic --for=condition=Stopped --timeout=30m
+yq -i '.operations.deployments[strenv(DEPLOYMENT)].ingressEnabled = false' "$VALUES"
 helm upgrade "$RELEASE" "$CHART" --kube-context "$KUBE_CONTEXT" -n "$NS" --reset-values -f "$VALUES" \
   --set-string deployment="$DEPLOYMENT" --wait=legacy --timeout=5m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" wait ingressroutetcp/backup-restic \
@@ -608,7 +642,7 @@ yq -i '
   .packages[strenv(TARGET_PACKAGE)] = (.packages[strenv(TARGET_PACKAGE)] // {
     "version": strenv(TARGET_VERSION), "chart": "oci://ghcr.io/bartlapp/bartl-restic"
   }) |
-  .operations.deployments[strenv(DEPLOYMENT)] = {"replicas": 1, "ingressEnabled": true} |
+  .operations.deployments[strenv(DEPLOYMENT)] = {"ingressEnabled": true} |
   (.services[strenv(INSTANCE)].replication[]?.suspend) = true
 ' "$VALUES"
 (
@@ -660,8 +694,11 @@ while IFS= read -r REPOSITORY; do
     --from-file=username="$directory/admin.username" --from-file=restPassword="$directory/admin.restPassword" \
     --from-file=password="$directory/password" --from-file=ca.crt="$INSTALL_DIR/protected/ca.crt"
   RECOVERY_SECRET=$(yq -er '.credentials.bindings[strenv(INSTANCE)].repositories[strenv(REPOSITORY)].recovery.secretName' "$INSTALL_DIR/restic-connections.yaml")
+  RECOVERY_INPUTS="$INSTALL_DIR/protected/credentials/$RECOVERY_SECRET"
+  mkdir -p "$RECOVERY_INPUTS"
+  cp "$SECONDARY_INPUTS/$REPOSITORY/"{username,restPassword,password,ca.crt} "$RECOVERY_INPUTS/"
   kubectl --context "$KUBE_CONTEXT" -n "$NS" create secret generic "$RECOVERY_SECRET" \
-    --from-file="$SECONDARY_INPUTS/$REPOSITORY/"
+    --from-file="$RECOVERY_INPUTS/"
 done < <(yq -r '.backup.providers[strenv(INSTANCE)].repositories | keys | .[]' "$INSTALL_DIR/restic-connections.yaml")
 ```
 
@@ -689,6 +726,8 @@ Require authoritative/public DNS and no conflicting AAAA before managed issuance
 
 ### Reconstruct and accept
 
+Run [Create application intent](#create-application-intent) for this selected target with `INITIAL_RUNNING=true`. This is new target intent, independent of the source's stop. Then install static configuration and verify reconstruction:
+
 ```bash
 helm install "$RELEASE" "$CHART" --kube-context "$KUBE_CONTEXT" -n "$NS" -f "$VALUES" \
   --set-string deployment="$DEPLOYMENT" --wait=legacy --timeout=5m
@@ -707,10 +746,15 @@ kubectl --context "$KUBE_CONTEXT" -n "$NS" get pvc -o json > "$INSTALL_DIR/targe
 
 The worker copies chunker parameters and history, checks all destination data and verifies snapshot correspondence. Inspect the result against the authorized secondary inventory, restore an older point and compare contents, then perform a new writer/reader round-trip. Confirm reader/writer denial of destructive backup-content requests. A confirmed empty secondary permits initialization: Ready alone therefore does not prove recovery of expected history.
 
-After acceptance, restore the independently retained destination credential Secrets as described above. Restore the exact previous replication configuration, including intentionally suspended copies and omitted defaults, then apply it to the replacement:
+After acceptance, restore the independently retained destination credential Secrets from their named custody paths. Restore the exact previous replication configuration, including intentionally suspended copies and omitted defaults, then apply it to the replacement:
 
 ```bash
 export REPLICATION_BEFORE="$SOURCE_DIR/replication-before-replacement.yaml"
+while IFS= read -r COPY_SECRET; do
+  kubectl --context "$KUBE_CONTEXT" -n "$NS" create secret generic "$COPY_SECRET" \
+    --from-file="$INSTALL_DIR/protected/credentials/$COPY_SECRET/"
+done < <(yq -r '.credentials.bindings[strenv(INSTANCE)].replication[]?.destination.secretName' \
+  "$INSTALL_DIR/restic-connections.yaml" | sort -u)
 yq -i 'load(strenv(REPLICATION_BEFORE)) as $before |
   del(.services[strenv(INSTANCE)].replication) |
   .services[strenv(INSTANCE)] = (.services[strenv(INSTANCE)] * $before)' "$VALUES"
@@ -729,12 +773,12 @@ Failed or interrupted native work leaves the target failed across restart/stop/s
 
 ## Supported uninstall
 
-Starting condition: [chart-backed operations prepared](#prepare-chart-backed-operations), retained configuration/credentials/history, authorized removal and no concurrent intent writer. Stop consumer publication and finish required replication before draining the endpoint. Export required logs first. Delete the application while its controller is alive, then uninstall Helm:
+Starting condition: [retained context loaded](#load-retained-context), retained configuration/credentials/history, authorized removal and no concurrent intent writer. Chart acquisition is not required. Read the retained claim identity from the installation record or live CR before deleting it. Stop consumer publication and finish required replication before draining the endpoint. Export required logs first. Delete the application while its controller is alive, then uninstall Helm:
 
 ```bash
-yq -i '.operations.deployments[strenv(DEPLOYMENT)].replicas = 0' "$VALUES"
-helm upgrade "$RELEASE" "$CHART" --kube-context "$KUBE_CONTEXT" -n "$NS" --reset-values -f "$VALUES" \
-  --set-string deployment="$DEPLOYMENT" --wait=legacy --timeout=5m
+CLAIM=$(kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o jsonpath='{.spec.existingClaim}')
+kubectl --context "$KUBE_CONTEXT" -n "$NS" patch resticapplication/backup-restic \
+  --type=merge -p '{"spec":{"running":false}}'
 kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic --for=condition=Stopped --timeout=30m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" get resticapplication/backup-restic -o json | \
   jq -e '.metadata.generation as $g | .status.observedGeneration == $g and
@@ -755,10 +799,9 @@ Finalization releases only this application's claim binding after confirmed drai
 
 ### Reinstall retained state
 
-Only after successful finalization/uninstall, with the same intact claim/configuration/Secrets and no failed markers or competing owner. First [prepare chart-backed operations](#prepare-chart-backed-operations) for this deployment; do not run **Inspect an installed endpoint**, since its application resource has deliberately been removed. Then reinstall:
+Only after successful finalization/uninstall, with the same intact claim/configuration/Secrets and no failed markers or competing owner. First [prepare chart-backed operations](#prepare-chart-backed-operations) for this deployment; do not run **Inspect an installed endpoint**, since its application resource has deliberately been removed. Run [Create application intent](#create-application-intent) with explicitly selected `INITIAL_RUNNING=true` for this new CR, then reinstall:
 
 ```bash
-yq -i '.operations.deployments[strenv(DEPLOYMENT)].replicas = 1' "$VALUES"
 helm install "$RELEASE" "$CHART" --kube-context "$KUBE_CONTEXT" -n "$NS" -f "$VALUES" \
   --set-string deployment="$DEPLOYMENT" --wait=legacy --timeout=5m
 kubectl --context "$KUBE_CONTEXT" -n "$NS" wait resticapplication/backup-restic --for=condition=Ready --timeout=30m
@@ -823,13 +866,12 @@ Require successful native forget/prune before resuming paused work. The package 
 
 ## Helm inputs and connections
 
-[interface.schema.json](chart/interface.schema.json) defines supported fields; [defaults.yaml](chart/defaults.yaml) supplies defaults. Selecting `deployment` reads `deployments.<deployment>` and `packages.<package>`, checks the Helm target and chart version, then applies only `operations.deployments.<deployment>.replicas` and `.ingressEnabled` over the selected service. Omission restores defaults/derivation, maps merge by key, lists replace, and explicit false/zero remain effective. Unknown selected-service fields fail; unrelated services/resources remain untouched. Restic needs no resolved input. Without a deployment record, `instance` selects the service directly and its `release` can assert the chart version.
+[interface.schema.json](chart/interface.schema.json) defines static fields; [defaults.yaml](chart/defaults.yaml) supplies static defaults. Selecting `deployment` reads `deployments.<deployment>` and `packages.<package>`, checks the Helm target and chart version, then applies only `operations.deployments.<deployment>.ingressEnabled` over the selected service. Omission restores static defaults/derivation, maps merge by key, lists replace, and explicit false remains effective. Unknown selected-service fields fail; unrelated services/resources remain untouched. `running` and `replicas` are rejected in selected service values and deployment operation overrides. Restic supports one endpoint, not replica/database topology: only CR `spec.running` controls its runtime, defaulting true on new creation. Helm omits that field. Restic needs no resolved input. Without a deployment record, `instance` selects the service directly and its `release` can assert the chart version.
 
 | Input under services.<instance> | Default or purpose |
 | --- | --- |
 | hostname | restic.<dns.root>; explicit override wins |
 | release | Optional assertion matching the selected chart version |
-| replicas | 1; 0 stops endpoint and native work |
 | existingClaim, tlsSecret | repository, repository-tls; operator-owned |
 | tls.managed, tls.acmeServer | true, Let's Encrypt production; staging is not publicly trusted |
 | ingress.enabled, ingress.entryPoint | true, websecure; disabling routing does not disable native TLS/authentication |
@@ -854,6 +896,8 @@ Declarations expose HTTPS endpoint flags/hostname, repository URLs and auth/key/
 ## Qualification and maintenance
 
 Exact artifacts, exercised cases and remaining acceptance limits belong to the [0.3.1 release record](https://github.com/bartlapp/bartl-restic/releases/tag/v0.3.1). Its retained chart passed the lifecycle, Kubernetes endpoint/authorization, replication and observation-failure runners on one disposable Hetzner/K3s host. Those cases do not establish provider-loss recovery or independently qualify the complete current README and four-service walkthrough. Historical [replication](evidence/2026-11-02-replication.json), [Kubernetes](evidence/2026-11-02-kubernetes.json), [endpoint authorization](evidence/2026-11-02-endpoint.json) and [native copy](evidence/2026-11-02-restic-copy.json) evidence remains attached to its original artifacts.
+
+Candidate 0.4.0-dev.1 has no new image/build or live qualification evidence. The unchanged digest in `defaults.yaml` is retained historical identity, not a candidate runtime. Build and retain the real candidate image/chart before running these procedures, then exercise CR-owned stop/start, static reapplication while stopped, controller restart, interrupted/completed native work, replacement, uninstall/reinstall and isolated standalone custody/recovery before publication.
 
 ### Qualification and test output
 
@@ -887,21 +931,14 @@ Each runner creates a namespace, finalizes stopped applications before uninstall
 
 Output defaults to an external private temporary directory. `BARTL_RESTIC_EVIDENCE_DIR` selects another external path; checkout paths and symlink aliases are rejected. `raw.json` holds redacted diagnostics; `qualification.json` holds selected results and source provenance. Provenance records run-start HEAD, dirty state and hashes of implementation, build and test files; a dirty run qualifies those bytes, not HEAD alone. Keep raw artifacts outside Git and put exact artifacts, concise results, limits and cleanup/budget outcome in the release/integration record. Do not add session reports.
 
-Historical 0.2.x-to-0.3.0 migration and uninstall qualification belongs to the [0.3.0 operating procedure](https://github.com/bartlapp/bartl-restic/blob/v0.3.0/README.md), not the current installation path. For reproduction, retain the verified 0.3.0 archive and use:
+Exercise the current candidate's supported retained-state removal/reinstall with its exact packaged chart and digest-pinned image:
 
 ```bash
-export CHART=/retained/bartl-restic-0.3.0.tgz
-export IMAGE=ghcr.io/bartlapp/bartl-restic-controller@sha256:f174793e5c622d7eb1d4ae384ac358ec804dae735ddafe2243d710c48b7b8fb3
-export OLD_CHART=oci://ghcr.io/bartlapp/bartl-restic@sha256:78d118df791192bcc8dc08ce7ce13ded3ac01b51c33cd19090c30cb7c2d8f20a
-export OLD_IMAGE=ghcr.io/bartlapp/bartl-restic-controller@sha256:3ee7994268a23b4beff8a10d6ecc77c13471baa7d4f9e073c4a8dad852deb757
-BARTL_RESTIC_REUSE=1 BARTL_RESTIC_CHART="$CHART" BARTL_RESTIC_IMAGE="$IMAGE" \
+BARTL_RESTIC_REUSE=1 BARTL_RESTIC_CHART="$BARTL_RESTIC_CHART" BARTL_RESTIC_IMAGE="$BARTL_RESTIC_IMAGE" \
   node tests/uninstall.mjs
-BARTL_RESTIC_REUSE=1 BARTL_RESTIC_CHART="$CHART" BARTL_RESTIC_IMAGE="$IMAGE" \
-  BARTL_RESTIC_UPGRADE_FROM_CHART="$OLD_CHART" \
-  BARTL_RESTIC_UPGRADE_FROM_IMAGE="$OLD_IMAGE" node tests/uninstall.mjs
 ```
 
-The 0.2.1 archive SHA-256 is `94293548ac5fd0a86976e4af0e678596a53c8d0144dad1983810cea64c9a4dfc`; its flat interface is not accepted by 0.3.0. Qualification must cover preserved repository identity/history, old-point restore, new backups, contender exclusion, stale-worker refusal, finalization, same-PVC reinstall and separate data destruction. Also exercise idle TLS/404, stop/start and first-repository admission against the exact 0.3.0 artifacts; native tests do not replace those cases.
+This checks preserved repository identity/history, old-point restore, new backups, contender exclusion, stale-worker refusal, finalization, same-PVC reinstall and separate data destruction. It does not adopt old management resources. Historical 0.2.x-to-0.3.0 migration/uninstall evidence and its runner belong to the [0.3.0 operating procedure and source](https://github.com/bartlapp/bartl-restic/blob/v0.3.0/README.md), not this candidate's API.
 
 Historical **0.2.0 must upgrade to 0.2.1 before application deletion**, using its [matching release procedure](https://github.com/bartlapp/bartl-restic/blob/v0.2.1/README.md#supported-uninstall) and retained flat file. Its fixed controller must finalize the application while alive; upgrading later cannot repair an already orphaned binding. These historical requirements do not add a migration step to current installations.
 

@@ -11,7 +11,7 @@ spec:
     kind: ResticApplication
     shortNames: [resticapp]
   versions:
-    - name: v1alpha1
+    - name: v1alpha2
       served: true
       storage: true
       subresources:
@@ -20,9 +20,9 @@ spec:
         - name: State
           type: string
           jsonPath: .status.state
-        - name: Intent
-          type: integer
-          jsonPath: .spec.replicas
+        - name: Running
+          type: boolean
+          jsonPath: .spec.running
       schema:
         openAPIV3Schema:
           type: object
@@ -33,14 +33,14 @@ spec:
             metadata: {type: object}
             spec:
               type: object
-              required: [replicas, existingClaim, tlsSecret, image, repositories]
+              required: [existingClaim, tlsSecret, image, repositories]
               x-kubernetes-validations:
                 - rule: self.existingClaim == oldSelf.existingClaim
                   message: existingClaim is immutable; a replacement requires a new application
                 - rule: '!has(self.replication) || self.replication.all(c, self.repositories.exists(r, r.name == c.repository))'
                   message: replication must name a declared source repository
               properties:
-                replicas: {type: integer, minimum: 0, maximum: 1}
+                running: {type: boolean, default: true}
                 existingClaim: {type: string, minLength: 1}
                 tlsSecret: {type: string, minLength: 1}
                 image: {type: string, minLength: 1}

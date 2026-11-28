@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { precreateApplication } from './installation.mjs';
 // BARTL_RESTIC_LAB=hetzner KUBECONFIG=/private/kubeconfig BARTL_RESTIC_IMAGE=imported-image node tests/observation.mjs
 // Existing disposable cluster only; all diagnostics and temporary credentials stay outside Git.
 import { spawnSync } from 'node:child_process';
@@ -92,7 +93,7 @@ async function addProbe(pod) {
 function apiRequest(pod, path, options = {}) {
   return shell(pod.metadata.name, 'api-probe', `curl --silent --show-error --connect-timeout 2 --max-time 5 --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt -H "Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" -o /dev/null -w '%{http_code}' "https://$KUBERNETES_SERVICE_HOST:$KUBERNETES_SERVICE_PORT${path}"`, { record: false, ...options });
 }
-const appPath = `/apis/restic.bartl.sh/v1alpha1/namespaces/${namespace}/resticapplications/primary-restic`;
+const appPath = `/apis/restic.bartl.sh/v1alpha2/namespaces/${namespace}/resticapplications/primary-restic`;
 const pvcPath = `/api/v1/namespaces/${namespace}/persistentvolumeclaims/primary-data`;
 function guardLogs(pod, since, previous = false) {
   return k(['logs', pod.metadata.name, '-c', 'https', `--since-time=${since}`, ...(previous ? ['--previous'] : [])], { allowFailure: true, record: false }).stdout;
@@ -164,6 +165,7 @@ try {
     existingClaim: 'primary-data', tlsSecret: 'primary-tls', repositories: [{ name: 'alpha', authSecret: 'primary-auth', passwordSecret: 'primary-key' }] };
   const valuesPath = join(privateDir, 'values.json');
   writeFileSync(valuesPath, JSON.stringify({ installation: namespace, services: { restic: resticService } }), { mode: 0o600 });
+  precreateApplication({command, chart: process.env.BARTL_RESTIC_CHART || join(root, 'chart'), release: 'primary', namespace, valuesFile: valuesPath});
   command('helm', ['upgrade', '--install', 'primary', process.env.BARTL_RESTIC_CHART || join(root, 'chart'), '--namespace', namespace, '-f', valuesPath, '--wait=legacy', '--timeout', '5m'], { timeout: 330000 });
   await state('Ready');
   const volumeMounts = ['reader', 'writer', 'admin'].map(role => ({ name: role, mountPath: `/credentials/${role}`, readOnly: true }));
@@ -180,7 +182,7 @@ try {
   for (const [label, path, expected] of [
     ['named application', appPath, '200'], ['named PVC', pvcPath, '200'],
     ['Secret read', `/api/v1/namespaces/${namespace}/secrets/primary-key`, '403'],
-    ['application list', `/apis/restic.bartl.sh/v1alpha1/namespaces/${namespace}/resticapplications`, '403'],
+    ['application list', `/apis/restic.bartl.sh/v1alpha2/namespaces/${namespace}/resticapplications`, '403'],
     ['PVC list', `/api/v1/namespaces/${namespace}/persistentvolumeclaims`, '403'],
     ['other PVC', `/api/v1/namespaces/${namespace}/persistentvolumeclaims/not-the-owned-claim`, '403']
   ]) assert(`actual endpoint worker token ${label}: HTTP ${expected}`, apiRequest(pod, path).stdout.trim() === expected);

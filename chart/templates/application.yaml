@@ -1,12 +1,13 @@
 {{- if eq .Values.renderMode "deployment" -}}
 {{- $service := include "restic.service" . | fromYaml -}}
 {{- $name := include "bartl-restic.name" . }}
-apiVersion: restic.bartl.sh/v1alpha1
+apiVersion: restic.bartl.sh/v1alpha2
 kind: ResticApplication
 metadata:
   name: {{ $name }}
+  labels:
+    app.kubernetes.io/managed-by: Helm
 spec:
-  replicas: {{ $service.replicas }}
   image: {{ $service.image | quote }}
   existingClaim: {{ $service.existingClaim | quote }}
   tlsSecret: {{ $service.tlsSecret | quote }}

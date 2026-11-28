@@ -48,7 +48,7 @@ func newAdmission(mode string) (*admission, error) {
 	if !pool.AppendCertsFromPEM(ca) {
 		return nil, errors.New("invalid Kubernetes CA")
 	}
-	return &admission{client: &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}}}, url: "https://kubernetes.default.svc/apis/restic.bartl.sh/v1alpha1/namespaces/" + url.PathEscape(namespace) + "/resticapplications/" + url.PathEscape(name), pvcURL: "https://kubernetes.default.svc/api/v1/namespaces/" + url.PathEscape(namespace) + "/persistentvolumeclaims/", uid: uid, mode: mode, generation: generation, tokenFile: serviceAccountDirectory + "/token"}, nil
+	return &admission{client: &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}}}, url: "https://kubernetes.default.svc/apis/restic.bartl.sh/v1alpha2/namespaces/" + url.PathEscape(namespace) + "/resticapplications/" + url.PathEscape(name), pvcURL: "https://kubernetes.default.svc/api/v1/namespaces/" + url.PathEscape(namespace) + "/persistentvolumeclaims/", uid: uid, mode: mode, generation: generation, tokenFile: serviceAccountDirectory + "/token"}, nil
 }
 
 var errAdmissionRevoked = errors.New("admission revoked")
@@ -110,7 +110,7 @@ func (a *admission) checkApplication(ctx context.Context, token string) (string,
 			DeletionTimestamp *string `json:"deletionTimestamp"`
 		} `json:"metadata"`
 		Spec struct {
-			Replicas      *int   `json:"replicas"`
+			Running       *bool  `json:"running"`
 			ExistingClaim string `json:"existingClaim"`
 		} `json:"spec"`
 		Status struct {
@@ -133,10 +133,10 @@ func (a *admission) checkApplication(ctx context.Context, token string) (string,
 	if app.Metadata.UID != a.uid || app.Metadata.DeletionTimestamp != nil {
 		return "", revoked("current application identity refuses work")
 	}
-	if app.Spec.Replicas == nil {
+	if app.Spec.Running == nil {
 		return "", errors.New("application observation lacks running intent")
 	}
-	if *app.Spec.Replicas != 1 {
+	if !*app.Spec.Running {
 		return "", revoked("current application intent refuses work")
 	}
 	if a.mode == "replicate" {

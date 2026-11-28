@@ -69,6 +69,7 @@
       {{- if hasKey .Values.operations.deployments $id -}}
         {{- $intent = index .Values.operations.deployments $id -}}
         {{- include "restic.validate" (dict "schema" $definitions.intent "definitions" $definitions "value" $intent "path" (printf "operations.deployments.%s" $id)) -}}
+        {{- if or (hasKey $intent "running") (hasKey $intent "replicas") -}}{{- fail "Restic runtime intent belongs only to the ResticApplication CR" -}}{{- end -}}
       {{- end -}}
     {{- end -}}
   {{- end -}}
@@ -86,7 +87,6 @@
 {{- include "restic.validate" (dict "schema" $definitions.service "definitions" $definitions "value" $selected "path" $path) -}}
 {{- if and (hasKey $selected "release") (ne $selected.release .Chart.Version) -}}{{- fail (printf "%s.release selects %s but this chart is %s" $path $selected.release .Chart.Version) -}}{{- end -}}
 {{- $service := mergeOverwrite (.Files.Get "defaults.yaml" | fromYaml) (deepCopy $selected) -}}
-{{- if hasKey $selection.intent "replicas" -}}{{- $_ := set $service "replicas" $selection.intent.replicas -}}{{- end -}}
 {{- if hasKey $selection.intent "ingressEnabled" -}}{{- $_ := set $service.ingress "enabled" $selection.intent.ingressEnabled -}}{{- end -}}
 {{- if not (hasKey $service "hostname") -}}
   {{- $domain := required "dns.root is required when the selected Restic service has no hostname" (get (get .Values "dns" | default dict) "root") -}}

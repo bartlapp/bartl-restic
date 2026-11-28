@@ -42,6 +42,8 @@ check('sparse shared configuration runs idle without repository credential depen
   v.infrastructure = {unrelated: ['ignored']}; v.resolved = {backup: {bindings: {paperless: 'ignored'}}};
   const {spec, docs} = deployment(v);
   assert.deepEqual(spec.repositories, []); assert.deepEqual(spec.replication, []);
+  assert.equal(Object.hasOwn(spec, 'running'), false); assert.equal(Object.hasOwn(spec, 'replicas'), false);
+  assert.equal(docs.find(d => d.kind === 'ResticApplication').apiVersion, 'restic.bartl.sh/v1alpha2');
   assert.equal(docs.some(d => ['Secret', 'PersistentVolumeClaim'].includes(d.kind)), false);
   const role = docs.find(d => d.kind === 'Role' && d.metadata.name.endsWith('-controller'));
   assert.deepEqual(role.rules.find(r => r.resources.includes('secrets')).resourceNames, ['repository-tls']);
@@ -50,10 +52,10 @@ check('sparse shared configuration runs idle without repository credential depen
   assert.deepEqual(d.credentials.bindings.restic.repositories, {});
   assert.deepEqual(d.services.restic.endpoints.https, {url: 'https://restic.acme.example', hostname: 'restic.acme.example', tlsManaged: true, ingressEnabled: true});
 });
-check('custom selected instance preserves zero, false and inherited map siblings', () => {
-  const v = base(); v.instance = 'archive'; v.services = {restic: {bad: true}, archive: {replicas: 0, existingClaim: 'archive-data', tlsSecret: 'archive-tls', ingress: {enabled: false}, tls: {managed: false}}};
+check('custom selected instance preserves false and inherited map siblings', () => {
+  const v = base(); v.instance = 'archive'; v.services = {restic: {bad: true}, archive: {existingClaim: 'archive-data', tlsSecret: 'archive-tls', ingress: {enabled: false}, tls: {managed: false}}};
   const {spec, docs} = deployment(v);
-  assert.equal(spec.replicas, 0); assert.equal(spec.existingClaim, 'archive-data'); assert.equal(spec.tlsSecret, 'archive-tls');
+  assert.equal(spec.existingClaim, 'archive-data'); assert.equal(spec.tlsSecret, 'archive-tls');
   assert.equal(docs.some(d => ['Certificate', 'Issuer', 'IngressRouteTCP'].includes(d.kind)), false);
   const d = declaration(v);
   assert.equal(d.services.archive.endpoints.https.hostname, 'restic.acme.example');
@@ -129,27 +131,27 @@ check('legacy flat inputs fail instead of silently changing package intent', () 
   }
 });
 check('release guard accepts the selected chart and rejects incompatible releases in both modes', () => {
-  const v = base(); selected(v).release = '0.3.1'; deployment(v); declaration(v);
+  const v = base(); selected(v).release = '0.4.0-dev.1'; deployment(v); declaration(v);
   selected(v).release = '0.2.1'; rejects(v); rejects(v, {mode: 'connections'});
 });
-check('deployment selection applies only its operation intent across runtime and declarations', () => {
+check('deployment selection applies only static operation configuration across manifests and declarations', () => {
   const v = base();
   v.services = {
     restic: {bad: 'not selected'},
-    archive: {replicas: 1, ingress: {enabled: true, entryPoint: 'private'}, tls: {managed: false}, repositories: [{name: 'records'}]},
+    archive: {ingress: {enabled: true, entryPoint: 'private'}, tls: {managed: false}, repositories: [{name: 'records'}]},
   };
   v.deployment = 'archive-replacement';
   v.deployments = {
     'archive-source': {instance: 'archive', namespace: 'source', release: 'original', package: 'old'},
     'archive-replacement': {instance: 'archive', namespace: 'backup', release: 'backup', package: 'restic'},
   };
-  v.packages = {old: {version: '0.3.0'}, restic: {version: '0.3.1', chart: 'oci://ghcr.io/bartlapp/bartl-restic'}};
+  v.packages = {old: {version: '0.3.1'}, restic: {version: '0.4.0-dev.1', chart: 'oci://ghcr.io/bartlapp/bartl-restic'}};
   v.operations = {deployments: {
-    'archive-source': {replicas: 1, ingressEnabled: true},
-    'archive-replacement': {replicas: 0, ingressEnabled: false},
+    'archive-source': {ingressEnabled: true},
+    'archive-replacement': {ingressEnabled: false},
   }};
   const {spec, docs} = deployment(v);
-  assert.equal(spec.replicas, 0);
+  assert.equal(Object.hasOwn(spec, 'running'), false);
   assert.equal(docs.some(d => d.kind === 'IngressRouteTCP'), false);
   assert.equal(docs.some(d => d.kind === 'Certificate'), false);
   const d = declaration(v);
@@ -158,24 +160,28 @@ check('deployment selection applies only its operation intent across runtime and
   assert.ok(d.backup.providers.archive.repositories.records);
   assert.equal(d.storage.claims.archive.repository.claimName, 'repository');
   delete v.operations.deployments['archive-replacement'];
-  assert.equal(deployment(v).spec.replicas, 1);
+  assert.equal(Object.hasOwn(deployment(v).spec, 'running'), false);
   assert.equal(declaration(v).services.archive.endpoints.https.ingressEnabled, true);
-  v.operations.deployments['archive-replacement'] = {replicas: 0, ingressEnabled: false};
-  v.services.archive.replicas = 0;
-  v.operations.deployments['archive-replacement'].replicas = 1;
-  assert.equal(deployment(v).spec.replicas, 1);
+  for (const intent of [{replicas: 0}, {replicas: 1}, {running: false}, {running: true}]) {
+    v.operations.deployments['archive-replacement'] = intent;
+    rejects(v); rejects(v, {mode: 'connections'});
+    delete v.operations.deployments['archive-replacement'];
+    Object.assign(v.services.archive, intent);
+    rejects(v); rejects(v, {mode: 'connections'});
+    delete v.services.archive.running; delete v.services.archive.replicas;
+  }
 });
 check('deployment selection rejects wrong targets, package versions and conflicting instances in both render modes', () => {
   const v = base();
   v.deployment = 'target';
   v.deployments = {target: {instance: 'archive', namespace: 'backup', release: 'backup', package: 'restic'}};
   v.services.archive = {};
-  v.packages = {restic: {version: '0.3.1'}};
+  v.packages = {restic: {version: '0.4.0-dev.1'}};
   for (const options of [{}, {mode: 'connections'}]) {
     assert.equal(render(v, options).status, 0);
     rejects(v, {...options, namespace: 'other'});
     rejects(v, {...options, release: 'other'});
-    v.packages.restic.version = '0.3.0'; rejects(v, options); v.packages.restic.version = '0.3.1';
+    v.packages.restic.version = '0.3.1'; rejects(v, options); v.packages.restic.version = '0.4.0-dev.1';
     v.instance = 'restic'; rejects(v, options); delete v.instance;
     v.deployments.target.package = 'missing'; rejects(v, options); v.deployments.target.package = 'restic';
     delete v.services.archive; rejects(v, options); v.services.archive = {};

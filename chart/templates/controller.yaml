@@ -131,8 +131,6 @@ spec:
                   fieldPath: metadata.namespace
             - name: APPLICATION_NAME
               value: {{ $name | quote }}
-            - name: HELM_RELEASE
-              value: {{ .Release.Name | quote }}
           readinessProbe:
             httpGet:
               path: /readyz
