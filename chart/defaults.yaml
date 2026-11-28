@@ -1,4 +1,4 @@
-image: ghcr.io/bartlapp/bartl-restic-controller@sha256:f174793e5c622d7eb1d4ae384ac358ec804dae735ddafe2243d710c48b7b8fb3
+image: ghcr.io/bartlapp/bartl-restic-controller@sha256:82e6b1eb91374d272450d68b3bc6de56fb6b0ee5d3f6137232eecef4d49903b4
 existingClaim: repository
 tlsSecret: repository-tls
 tls:
